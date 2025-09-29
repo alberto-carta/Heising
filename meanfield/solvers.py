@@ -1,0 +1,343 @@
+"""
+Mean Field Equation Solvers
+
+This module contains solvers for self-consistent mean field equations.
+The solvers use iterative methods to find equilibrium magnetizations.
+"""
+
+from typing import List, Dict, Any, Optional, Tuple
+import numpy as np
+from .spintypes import BaseSpinType
+from .fields import BaseFieldCalculator
+
+
+class MeanFieldSolver:
+    """
+    Self-consistent mean field equation solver with detailed convergence tracking.
+    
+    This solver iterates between calculating effective fields and updating
+    magnetizations until convergence is achieved. It provides detailed
+    information about the convergence process.
+    
+    Parameters
+    ----------
+    spin_types : List[BaseSpinType]
+        List of spin types for each sublattice. Can mix:
+        - IsingSpinType: produces scalar magnetizations (float)
+        - HeisenbergSpinType: produces vector magnetizations (np.ndarray)
+    field_calculator : BaseFieldCalculator
+        Strategy for calculating effective fields
+    max_iterations : int, optional
+        Maximum number of iterations, by default 500
+    tolerance : float, optional
+        Convergence tolerance, by default 1e-6
+    mixing_parameter : float, optional
+        Mixing parameter for stability (0 < α ≤ 1), by default 0.1
+        New magnetization = (1-α)*old + α*calculated
+        
+    Examples
+    --------
+    >>> from meanfield import IsingSpinType, HeisenbergSpinType, MeanFieldSolver
+    >>> spin_types = [IsingSpinType(), HeisenbergSpinType(S=0.5)]
+    >>> # ... set up field calculator ...
+    >>> solver = MeanFieldSolver(spin_types, field_calculator)
+    >>> 
+    >>> # Solve with convergence tracking
+    >>> mags, info = solver.solve_at_temperature(1.0, track_convergence=True)
+    >>> solver.print_convergence_info(info)
+    """
+    
+    def __init__(self,
+                 spin_types: List[BaseSpinType],
+                 field_calculator: BaseFieldCalculator,
+                 max_iterations: int = 500,
+                 tolerance: float = 1e-6,
+                 mixing_parameter: float = 0.1):
+        
+        self.spin_types = spin_types
+        self.field_calculator = field_calculator
+        self.max_iterations = max_iterations
+        self.tolerance = tolerance
+        self.mixing_parameter = mixing_parameter
+        
+        if not (0 < mixing_parameter <= 1):
+            raise ValueError("Mixing parameter must be in (0, 1]")
+    
+    def _initialize_magnetizations(self, initial_guess: Optional[List] = None) -> List:
+        """
+        Initialize magnetizations for iteration.
+        
+        Parameters
+        ----------
+        initial_guess : List[Union[float, np.ndarray]], optional
+            Initial magnetization guess. If None, uses model defaults.
+            
+        Returns
+        -------
+        List[Union[float, np.ndarray]]
+            Initial magnetizations for all sublattices
+        """
+        if initial_guess is not None:
+            if len(initial_guess) != len(self.spin_types):
+                raise ValueError("Initial guess length must match number of spin types")
+            return [np.copy(mag) if isinstance(mag, np.ndarray) else mag 
+                   for mag in initial_guess]
+        
+        # Use default initialization for each spin type
+        magnetizations = []
+        for i, spin_type in enumerate(self.spin_types):
+            if hasattr(spin_type, 'initial_direction'):
+                if isinstance(spin_type.initial_direction, np.ndarray):
+                    # Heisenberg: scale by 80% of max magnetization
+                    mag = 0.8 * spin_type.get_max_magnetization() * spin_type.initial_direction
+                else:
+                    # Ising: use initial direction with 80% magnitude
+                    mag = 0.8 * spin_type.initial_direction
+            else:
+                # Fallback: alternating pattern
+                if isinstance(spin_type.get_max_magnetization(), (int, float)):
+                    mag = 0.8 * ((-1) ** i)  # Ising-like
+                else:
+                    mag = 0.8 * np.array([0.0, 0.0, (-1) ** i])  # Heisenberg-like
+            
+            magnetizations.append(mag)
+        
+        return magnetizations
+    
+    def _check_convergence(self, old_mags: List, new_mags: List) -> bool:
+        """
+        Check if magnetizations have converged.
+        
+        Parameters
+        ----------
+        old_mags : List[Union[float, np.ndarray]]
+            Previous magnetizations
+        new_mags : List[Union[float, np.ndarray]]
+            New magnetizations
+            
+        Returns
+        -------
+        bool
+            True if converged within tolerance
+        """
+        for old_mag, new_mag in zip(old_mags, new_mags):
+            if not np.allclose(old_mag, new_mag, atol=self.tolerance):
+                return False
+        return True
+    
+    def solve_at_temperature(self,
+                           temperature: float,
+                           initial_guess: Optional[List] = None,
+                           track_convergence: bool = False,
+                           **field_kwargs) -> Tuple[List, Dict[str, Any]]:
+        """
+        Solve mean field equations at a given temperature.
+        
+        Parameters
+        ----------
+        temperature : float
+            Temperature (in energy units)
+        initial_guess : List, optional
+            Initial magnetization guess. Each element can be:
+            - float (for Ising spins)
+            - np.ndarray([x,y,z]) (for Heisenberg spins)
+        track_convergence : bool, optional
+            If True, store magnetization history for each iteration
+        **field_kwargs
+            Additional parameters for field calculation
+            
+        Returns
+        -------
+        Tuple[List, Dict[str, Any]]
+            (final_magnetizations, convergence_info)
+            
+        Examples
+        --------
+        >>> mags, info = solver.solve_at_temperature(1.0)
+        >>> print(f"Converged in {info['iterations']} iterations")
+        >>> if info['converged']:
+        >>>     print("Final magnetizations:", mags)
+        """
+        # Initialize magnetizations
+        magnetizations = self._initialize_magnetizations(initial_guess)
+        
+        # Convergence tracking
+        convergence_history = []
+        field_history = []
+        if track_convergence:
+            convergence_history.append([np.copy(mag) if isinstance(mag, np.ndarray) else mag 
+                                      for mag in magnetizations])
+        
+        # Iteration loop
+        for iteration in range(self.max_iterations):
+            # Calculate effective fields for all sublattices
+            effective_fields = []
+            for i in range(len(self.spin_types)):
+                h_eff = self.field_calculator.calculate_effective_field(
+                    i, magnetizations, **field_kwargs)
+                effective_fields.append(h_eff)
+            
+            if track_convergence:
+                field_history.append([np.copy(field) if isinstance(field, np.ndarray) else field 
+                                    for field in effective_fields])
+            
+            # Update magnetizations using spin types
+            new_magnetizations = []
+            for spin_type, h_field in zip(self.spin_types, effective_fields):
+                new_mag = spin_type.calculate_magnetization(h_field, temperature)
+                new_magnetizations.append(new_mag)
+            
+            # Check convergence
+            converged = self._check_convergence(magnetizations, new_magnetizations)
+            
+            # Apply mixing for stability
+            mixed_magnetizations = []
+            for i in range(len(magnetizations)):
+                old_mag = magnetizations[i]
+                new_mag = new_magnetizations[i]
+                mixed_mag = ((1 - self.mixing_parameter) * old_mag + 
+                           self.mixing_parameter * new_mag)
+                mixed_magnetizations.append(mixed_mag)
+            
+            magnetizations = mixed_magnetizations
+            
+            if track_convergence:
+                convergence_history.append([np.copy(mag) if isinstance(mag, np.ndarray) else mag 
+                                          for mag in magnetizations])
+            
+            if converged:
+                convergence_info = {
+                    'converged': True,
+                    'iterations': iteration + 1,
+                    'final_fields': effective_fields,
+                    'temperature': temperature,
+                    'final_magnetizations': magnetizations
+                }
+                
+                if track_convergence:
+                    convergence_info['magnetization_history'] = convergence_history
+                    convergence_info['field_history'] = field_history
+                
+                return magnetizations, convergence_info
+        
+        # Did not converge
+        convergence_info = {
+            'converged': False,
+            'iterations': self.max_iterations,
+            'final_fields': effective_fields,
+            'temperature': temperature,
+            'warning': f'Did not converge within {self.max_iterations} iterations',
+            'final_magnetizations': magnetizations
+        }
+        
+        if track_convergence:
+            convergence_info['magnetization_history'] = convergence_history
+            convergence_info['field_history'] = field_history
+        
+        return magnetizations, convergence_info
+    
+    def solve_temperature_sweep(self,
+                              temperatures: np.ndarray,
+                              initial_guess: Optional[List] = None,
+                              use_previous: bool = True,
+                              **field_kwargs) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """
+        Solve equations for a range of temperatures.
+        
+        Parameters
+        ----------
+        temperatures : np.ndarray
+            Array of temperatures to solve
+        initial_guess : List[Union[float, np.ndarray]], optional
+            Initial guess for first temperature
+        use_previous : bool, optional
+            Whether to use previous solution as next initial guess, by default True
+        **field_kwargs
+            Additional parameters for field calculation
+            
+        Returns
+        -------
+        Tuple[np.ndarray, List[Dict[str, Any]]]
+            (magnetizations_array, convergence_info_list)
+            magnetizations_array has shape (n_temps, n_sublattices, ...)
+            
+        Examples
+        --------
+        >>> temps = np.linspace(0.1, 5.0, 50)
+        >>> mags_vs_T, infos = solver.solve_temperature_sweep(temps)
+        """
+        n_temps = len(temperatures)
+        n_sublattices = len(self.spin_types)
+        
+        # Determine array shapes for storage
+        # We'll use object arrays to handle mixed Ising/Heisenberg systems
+        magnetizations_vs_T = []
+        convergence_infos = []
+        
+        current_guess = initial_guess
+        
+        for i, T in enumerate(temperatures):
+            mags, info = self.solve_at_temperature(T, current_guess, **field_kwargs)
+            
+            magnetizations_vs_T.append([np.copy(mag) if isinstance(mag, np.ndarray) else mag 
+                                       for mag in mags])
+            convergence_infos.append(info)
+            
+            # Use current solution as next initial guess
+            if use_previous:
+                current_guess = mags
+            
+            # Check for convergence issues
+            if not info['converged']:
+                print(f"Warning: Did not converge at T = {T:.3f}")
+        
+        # Convert to structured array
+        result_array = np.empty((n_temps, n_sublattices), dtype=object)
+        for i, mags_at_T in enumerate(magnetizations_vs_T):
+            for j, mag in enumerate(mags_at_T):
+                result_array[i, j] = mag
+        
+        return result_array, convergence_infos
+    
+    def print_convergence_info(self, convergence_info: Dict[str, Any]) -> None:
+        """
+        Print detailed convergence information in a readable format.
+        
+        Parameters
+        ----------
+        convergence_info : Dict[str, Any]
+            Convergence information from solve_at_temperature
+        """
+        print(f"Temperature: {convergence_info['temperature']:.4f}")
+        print(f"Converged: {convergence_info['converged']}")
+        print(f"Iterations: {convergence_info['iterations']}")
+        
+        if 'warning' in convergence_info:
+            print(f"Warning: {convergence_info['warning']}")
+        
+        print("Final magnetizations:")
+        for i, mag in enumerate(convergence_info['final_magnetizations']):
+            if isinstance(mag, np.ndarray):
+                print(f"  Sublattice {i}: [{mag[0]:8.5f}, {mag[1]:8.5f}, {mag[2]:8.5f}] (Heisenberg)")
+            else:
+                print(f"  Sublattice {i}: {mag:8.5f} (Ising)")
+        
+        if 'magnetization_history' in convergence_info:
+            print(f"\nConvergence history ({len(convergence_info['magnetization_history'])} steps):")
+            history = convergence_info['magnetization_history']
+            for step, mags in enumerate(history):
+                if step % 10 == 0 or step == len(history) - 1:  # Print every 10th step + final
+                    print(f"  Step {step:3d}:", end="")
+                    for i, mag in enumerate(mags):
+                        if isinstance(mag, np.ndarray):
+                            mag_norm = np.linalg.norm(mag)
+                            print(f" |m{i}|={mag_norm:6.4f}", end="")
+                        else:
+                            print(f" m{i}={mag:7.4f}", end="")
+                    print()
+    
+    def get_convergence_summary(self, convergence_info: Dict[str, Any]) -> str:
+        """Return a brief convergence summary as a string."""
+        status = "✓" if convergence_info['converged'] else "✗"
+        return (f"{status} T={convergence_info['temperature']:.3f}, "
+               f"iter={convergence_info['iterations']}")
