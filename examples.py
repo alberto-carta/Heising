@@ -28,11 +28,12 @@ def example_pure_heisenberg():
     ]
     
     # Same coupling and coordination as before
+    # Using new convention: positive J = antiferromagnetic
     J_matrix = np.array([
-        [ 0.0, -1.0, -1.0,  0.0],
-        [-1.0,  0.0,  0.0, -1.0],
-        [-1.0,  0.0,  0.0, -1.0],
-        [ 0.0, -1.0, -1.0,  0.0]
+        [ 0.0, +1.0, +1.0,  0.0],
+        [+1.0,  0.0,  0.0, +1.0],
+        [+1.0,  0.0,  0.0, +1.0],
+        [ 0.0, +1.0, +1.0,  0.0]
     ])
     
     z_matrix = np.array([
@@ -70,12 +71,12 @@ def example_pure_ising():
         SublatticeDef('ising', initial_direction=+1)
     ]
     
-    # Same matrices
+    # Same matrices - using new convention: positive J = antiferromagnetic
     J_matrix = np.array([
-        [ 0.0, -1.0, -1.0,  0.0],
-        [-1.0,  0.0,  0.0, -1.0],
-        [-1.0,  0.0,  0.0, -1.0],
-        [ 0.0, -1.0, -1.0,  0.0]
+        [ 0.0, +1.0, +1.0,  0.0],
+        [+1.0,  0.0,  0.0, +1.0],
+        [+1.0,  0.0,  0.0, +1.0],
+        [ 0.0, +1.0, +1.0,  0.0]
     ])
     
     z_matrix = np.array([
@@ -132,16 +133,17 @@ def example_8_sublattice_separated():
     ]
     
     # 8x8 coupling matrix: Heisenberg (0-3) only with Heisenberg, Ising (4-7) only with Ising
+    # Using new convention: positive J = antiferromagnetic
     J_matrix_8 = np.array([
         # H0   H1   H2   H3   I0   I1   I2   I3
-        [ 0.0, -1.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0],  # H0: couples to H1, H2
-        [-1.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0],  # H1: couples to H0, H3  
-        [-1.0,  0.0,  0.0, -1.0,  0.0,  0.0,  0.0,  0.0],  # H2: couples to H0, H3
-        [ 0.0, -1.0, -1.0,  0.0,  0.0,  0.0,  0.0,  0.0],  # H3: couples to H1, H2
-        [ 0.0,  0.0,  0.0,  0.0,  0.0, -1.0, -1.0,  0.0],  # I0: couples to I1, I2
-        [ 0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0],  # I1: couples to I0, I3
-        [ 0.0,  0.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0],  # I2: couples to I0, I3
-        [ 0.0,  0.0,  0.0,  0.0,  0.0, -1.0, -1.0,  0.0]   # I3: couples to I1, I2
+        [ 0.0, +1.0, +1.0,  0.0,  0.0,  0.0,  0.0,  0.0],  # H0: couples to H1, H2
+        [+1.0,  0.0,  0.0, +1.0,  0.0,  0.0,  0.0,  0.0],  # H1: couples to H0, H3  
+        [+1.0,  0.0,  0.0, +1.0,  0.0,  0.0,  0.0,  0.0],  # H2: couples to H0, H3
+        [ 0.0, +1.0, +1.0,  0.0,  0.0,  0.0,  0.0,  0.0],  # H3: couples to H1, H2
+        [ 0.0,  0.0,  0.0,  0.0,  0.0, +1.0, +1.0,  0.0],  # I0: couples to I1, I2
+        [ 0.0,  0.0,  0.0,  0.0, +1.0,  0.0,  0.0, +1.0],  # I1: couples to I0, I3
+        [ 0.0,  0.0,  0.0,  0.0, +1.0,  0.0,  0.0, +1.0],  # I2: couples to I0, I3
+        [ 0.0,  0.0,  0.0,  0.0,  0.0, +1.0, +1.0,  0.0]   # I3: couples to I1, I2
     ])
     
     # Coordination matrix: same connectivity pattern within each group

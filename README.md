@@ -22,10 +22,10 @@ meanfield/
 - `brillouin_function`: Numerically stable Brillouin function implementation
 
 ### 2. Field Calculation (`fields.py`)
-**This is the most flexible component** - designed for easy modification of how effective fields are computed:
+**Simple and flexible** - easy to modify effective field calculations:
 
-- `BaseFieldCalculator`: Abstract base class for field calculation strategies
-- `StandardFieldCalculator`: Standard mean-field theory using coupling/coordination matrices
+- `calculate_effective_field`: Core function implementing h_eff = Σ_j J_ij * m_j
+- `FieldCalculator`: Simple wrapper class for repeated calculations
 
 ### 3. Solvers (`solvers.py`) 
 - `MeanFieldSolver`: Self-consistent iterative solver with convergence checking
@@ -52,8 +52,10 @@ sublattices = [
 ]
 
 # Define interactions
-J_matrix = np.array([[0, -1], [-1, 0]])  # Antiferromagnetic coupling  
+J_matrix = np.array([[0, +1], [+1, 0]])  # Antiferromagnetic coupling
 z_matrix = np.array([[0, 1], [1, 0]])    # Coordination numbers
+
+# Note: Coupling convention - J < 0 = ferromagnetic, J > 0 = antiferromagnetic
 
 # Create system
 system = MagneticSystem(sublattices, J_matrix, z_matrix)
@@ -68,23 +70,35 @@ mags_vs_T, infos = system.solve_temperature_range(temperatures)
 
 ## Customizing Field Calculations
 
-The field calculation is designed to be easily modifiable. To create custom field calculation strategies, inherit from `BaseFieldCalculator`:
+The field calculation is kept simple and flexible. You can either:
 
+1. **Modify the core function directly** in `fields.py`:
 ```python
-from meanfield.fields import BaseFieldCalculator
-
-class MyCustomFieldCalculator(BaseFieldCalculator):
-    def calculate_effective_field(self, sublattice_index, magnetizations, **kwargs):
-        # Your custom field calculation here
-        # Return scalar for Ising targets, np.array([x,y,z]) for Heisenberg
-        pass
+def calculate_effective_field(coupling_matrix, magnetizations, sublattice_idx):
+    # Standard: h_eff = Σ_j J_ij * m_j
+    return coupling_matrix[sublattice_idx] @ magnetizations
 ```
 
-This flexibility allows you to easily implement:
-- Different interaction types (exchange, dipolar, anisotropy, etc.)
-- Custom geometries and neighbor structures  
-- External field contributions
-- Non-linear field dependencies
+2. **Create custom field functions**:
+```python
+import numpy as np
+from meanfield import FieldCalculator
+
+def my_custom_field(coupling_matrix, magnetizations, sublattice_idx):
+    # Your custom calculation - add anisotropy, external fields, etc.
+    h_standard = coupling_matrix[sublattice_idx] @ magnetizations
+    h_external = np.array([0, 0, 0.1])  # External field example
+    return h_standard + h_external
+
+# Use it
+field_calc = FieldCalculator(calculate_field_func=my_custom_field)
+```
+
+This approach allows easy implementation of:
+- External magnetic fields
+- Anisotropy terms  
+- Different interaction types
+- Custom neighbor structures
 
 ## Running Examples
 
@@ -101,6 +115,14 @@ Run the basic tests to verify installation:
 ```bash
 python test_library.py
 ```
+
+## Coupling Convention
+
+**Important**: This library uses the convention where:
+- **J < 0 (negative)** = **ferromagnetic coupling**
+- **J > 0 (positive)** = **antiferromagnetic coupling**
+
+This is implemented by using `-J[i,j]` in the effective field calculation: `H_eff[i] = Σ_j z[i,j] * (-J[i,j]) * <m_j>/S_j`
 
 ## Design Principles
 

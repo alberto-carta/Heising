@@ -8,7 +8,7 @@ The solvers use iterative methods to find equilibrium magnetizations.
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from .spintypes import BaseSpinType
-from .fields import BaseFieldCalculator
+from .fields import FieldCalculator
 
 
 class MeanFieldSolver:
@@ -21,12 +21,12 @@ class MeanFieldSolver:
     
     Parameters
     ----------
-    spin_types : List[BaseSpinType]
+    spin_types : list
         List of spin types for each sublattice. Can mix:
         - IsingSpinType: produces scalar magnetizations (float)
         - HeisenbergSpinType: produces vector magnetizations (np.ndarray)
-    field_calculator : BaseFieldCalculator
-        Strategy for calculating effective fields
+    field_calculator : FieldCalculator
+        Calculator for effective fields
     max_iterations : int, optional
         Maximum number of iterations, by default 500
     tolerance : float, optional
@@ -48,11 +48,11 @@ class MeanFieldSolver:
     """
     
     def __init__(self,
-                 spin_types: List[BaseSpinType],
-                 field_calculator: BaseFieldCalculator,
-                 max_iterations: int = 500,
-                 tolerance: float = 1e-6,
-                 mixing_parameter: float = 0.1):
+                 spin_types,
+                 field_calculator,
+                 max_iterations=500,
+                 tolerance=1e-6,
+                 mixing_parameter=0.1):
         
         self.spin_types = spin_types
         self.field_calculator = field_calculator
@@ -173,8 +173,7 @@ class MeanFieldSolver:
             # Calculate effective fields for all sublattices
             effective_fields = []
             for i in range(len(self.spin_types)):
-                h_eff = self.field_calculator.calculate_effective_field(
-                    i, magnetizations, **field_kwargs)
+                h_eff = self.field_calculator.calculate_field(i, magnetizations)
                 effective_fields.append(h_eff)
             
             if track_convergence:

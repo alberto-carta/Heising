@@ -23,7 +23,7 @@ def test_simple_ising_pair():
         SublatticeDef('ising', initial_direction=-1)
     ]
     
-    J = np.array([[0, -1], [-1, 0]])  # Antiferromagnetic
+    J = np.array([[0, +1], [+1, 0]])  # Antiferromagnetic (new convention: positive J)
     z = np.array([[0, 1], [1, 0]])    # Single neighbors
     
     system = MagneticSystem(sublattices, J, z)
@@ -51,7 +51,7 @@ def test_mixed_system():
         SublatticeDef('heisenberg', S=0.5, initial_direction=[0, 0, -1])
     ]
     
-    J = np.array([[0, -1], [-1, 0]])
+    J = np.array([[0, +1], [+1, 0]])  # Antiferromagnetic (new convention: positive J)
     z = np.array([[0, 1], [1, 0]])
     
     system = MagneticSystem(sublattices, J, z)

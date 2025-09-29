@@ -8,7 +8,7 @@ with sublattices, interactions, and solution methods.
 from typing import List, Dict, Any, Union, Optional
 import numpy as np
 from .spintypes import IsingSpinType, HeisenbergSpinType
-from .fields import StandardFieldCalculator
+from .fields import FieldCalculator
 from .solvers import MeanFieldSolver
 
 
@@ -50,6 +50,7 @@ class MagneticSystem:
         List of sublattice definitions
     coupling_matrix : np.ndarray
         Coupling matrix J[i,j] between sublattices
+        Convention: J < 0 = ferromagnetic, J > 0 = antiferromagnetic
     coordination_matrix : np.ndarray
         Coordination matrix z[i,j] between sublattices
         
@@ -95,7 +96,7 @@ class MagneticSystem:
             self.sublattice_params.append(params)
         
         # Create field calculator
-        self.field_calculator = StandardFieldCalculator(
+        self.field_calculator = FieldCalculator(
             coupling_matrix=self.coupling_matrix,
             coordination_matrix=self.coordination_matrix,
             sublattice_types=self.sublattice_types,

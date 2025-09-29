@@ -13,7 +13,7 @@ Main components:
 """
 
 from .spintypes import IsingSpinType, HeisenbergSpinType
-from .fields import BaseFieldCalculator, StandardFieldCalculator
+from .fields import FieldCalculator, calculate_effective_field
 from .solvers import MeanFieldSolver
 from .systems import MagneticSystem, SublatticeDef
 from .visualization import plot_magnetizations, find_critical_temperature
@@ -22,8 +22,8 @@ __version__ = "0.1.0"
 __all__ = [
     "IsingSpinType", 
     "HeisenbergSpinType",
-    "BaseFieldCalculator", 
-    "StandardFieldCalculator",
+    "FieldCalculator", 
+    "calculate_effective_field",
     "MeanFieldSolver",
     "MagneticSystem", 
     "SublatticeDef",

@@ -7,35 +7,41 @@ Note: These are individual spin behaviors, not many-body models (e.g., not the f
 """
 
 from abc import ABC, abstractmethod
-from typing import Union
 import numpy as np
 
 
-def brillouin_function(x: np.ndarray, S: float) -> np.ndarray:
+def brillouin_function(x, S):
     """
-    Calculate the Brillouin function B_S(x).
+    Calculate the Brillouin function for quantum spins.
     
-    The Brillouin function describes the magnetization of a quantum spin S
-    in a magnetic field, given by:
+    This function determines how strongly a quantum spin aligns with a magnetic field.
+    It's the quantum mechanical equivalent of tanh() for classical spins.
+    
+    Mathematical form:
     B_S(x) = (2S+1)/(2S) * coth((2S+1)x/(2S)) - 1/(2S) * coth(x/(2S))
     
     Parameters
     ----------
-    x : np.ndarray
-        Dimensionless field parameter (β * μ * H / ℏ)
+    x : float or array
+        Field strength divided by temperature: field/temperature
     S : float
-        Spin quantum number (must be positive)
+        Spin quantum number (0.5 for electrons, 1.0 for typical ions, etc.)
         
     Returns
     -------
-    np.ndarray
-        Brillouin function values, same shape as x
+    float or array
+        Brillouin function values between -1 and +1
+        - Same shape as input x
+        - Approaches ±1 for strong fields or low temperature
+        - Approaches 0 for weak fields or high temperature
         
     Examples
     --------
-    >>> import numpy as np
-    >>> x = np.array([0.0, 1.0, 2.0])
-    >>> B_half = brillouin_function(x, 0.5)  # S = 1/2 case
+    >>> # Electron spin (S=1/2) in moderate field
+    >>> B = brillouin_function(1.0, S=0.5)
+    >>> 
+    >>> # Classical limit (large S) behaves like tanh(x)
+    >>> B_classical = brillouin_function(1.0, S=100)  # ≈ tanh(1.0)
     """
     if S <= 0:
         return np.zeros_like(x)
@@ -71,70 +77,101 @@ class BaseSpinType(ABC):
     """
     
     @abstractmethod
-    def calculate_magnetization(self, 
-                              effective_field: Union[float, np.ndarray],
-                              temperature: float) -> Union[float, np.ndarray]:
+    def calculate_magnetization(self, effective_field, temperature):
         """
         Calculate equilibrium magnetization given effective field and temperature.
         
         Parameters
         ----------
-        effective_field : float or np.ndarray
-            Effective magnetic field acting on the spin
+        effective_field : float or list/array [x, y, z]
+            Effective magnetic field acting on the spin:
+            - For Ising spins: provide a number (e.g., 1.5)
+            - For Heisenberg spins: provide [Hx, Hy, Hz] or just a number for Hz
         temperature : float
-            Temperature (in energy units)
+            Temperature in energy units (must be positive)
             
         Returns
         -------
-        float or np.ndarray
-            Equilibrium magnetization
+        For Ising spins: float
+            Magnetization value between -1 and +1
+        For Heisenberg spins: array [mx, my, mz]
+            Magnetization vector components
         """
         pass
     
     @abstractmethod
-    def get_max_magnetization(self) -> Union[float, np.ndarray]:
-        """Return the maximum possible magnetization for this model."""
+    def get_max_magnetization(self):
+        """
+        Return the maximum possible magnetization for this spin type.
+        
+        Returns
+        -------
+        For Ising spins: float
+            Always returns 1.0
+        For Heisenberg spins: float  
+            Returns the spin quantum number S
+        """
         pass
 
 
 class IsingSpinType(BaseSpinType):
     """
-    Individual classical spin (S = ±1) as used in Ising models.
+    Individual classical Ising spin that can point up (+1) or down (-1).
     
-    Represents a single classical spin that can only point up (+1) or down (-1).
-    The magnetization follows: m = tanh(βh)
+    This represents a single classical magnetic moment that can only be in two states.
+    The equilibrium magnetization follows: m = tanh(field/temperature)
     
     Parameters
     ----------
     initial_direction : float, optional
-        Initial spin direction (+1 or -1), by default +1
+        Starting spin direction: +1 (up) or -1 (down)
+        Default is +1 (spin up)
         
     Examples
     --------
+    >>> # Create a spin that starts pointing down
     >>> spin = IsingSpinType(initial_direction=-1)
-    >>> m = spin.calculate_magnetization(effective_field=2.0, temperature=1.0)
+    >>> 
+    >>> # Calculate magnetization at T=1.0 with field H=2.0
+    >>> magnetization = spin.calculate_magnetization(effective_field=2.0, temperature=1.0)
+    >>> print(f"Magnetization: {magnetization:.3f}")  # Should be close to +1
     """
     
-    def __init__(self, initial_direction: float = 1.0):
-        self.initial_direction = np.sign(initial_direction) if initial_direction != 0 else 1.0
-    
-    def calculate_magnetization(self, 
-                              effective_field: Union[float, np.ndarray], 
-                              temperature: float) -> float:
+    def __init__(self, initial_direction=1.0):
         """
-        Calculate Ising magnetization: m = tanh(βh).
+        Create an Ising spin.
         
         Parameters
         ----------
-        effective_field : float or np.ndarray
-            Effective magnetic field. If array, uses magnitude and z-component sign
+        initial_direction : float
+            Starting direction: +1 for up, -1 for down
+        """
+        self.initial_direction = np.sign(initial_direction) if initial_direction != 0 else 1.0
+    
+    def calculate_magnetization(self, effective_field, temperature):
+        """
+        Calculate the equilibrium magnetization of this Ising spin.
+        
+        Parameters
+        ----------
+        effective_field : float or array-like
+            Magnetic field acting on the spin:
+            - If number: field strength (positive = favors spin up)
+            - If array [Hx, Hy, Hz]: uses Hz component and overall magnitude
         temperature : float
             Temperature (must be positive)
+            Higher temperature → more disorder → magnetization closer to 0
             
         Returns
         -------
         float
-            Magnetization between -1 and +1
+            Magnetization value between -1 (fully down) and +1 (fully up)
+            
+        Examples
+        --------
+        >>> spin = IsingSpinType()
+        >>> m_hot = spin.calculate_magnetization(1.0, temperature=10.0)   # ≈ 0.1 (disordered)
+        >>> m_cold = spin.calculate_magnetization(1.0, temperature=0.1)   # ≈ 1.0 (ordered)
         """
         if temperature <= 0:
             return self.initial_direction
@@ -162,26 +199,47 @@ class IsingSpinType(BaseSpinType):
 
 class HeisenbergSpinType(BaseSpinType):
     """
-    Individual quantum Heisenberg spin with arbitrary spin S.
+    Individual quantum Heisenberg spin that can point in any direction.
     
-    Represents a single quantum spin with magnitude S that can point in any direction.
-    The magnetization follows the Brillouin function: m = S * B_S(βh) * h/|h|
+    This represents a quantum magnetic moment with spin quantum number S.
+    Unlike Ising spins, it can point in any 3D direction.
+    The equilibrium magnetization follows the Brillouin function.
     
     Parameters
     ----------
     S : float
-        Spin quantum number (must be positive)
-    initial_direction : np.ndarray, optional
-        Initial spin direction vector [x, y, z], by default [0, 0, 1]
+        Spin quantum number (must be positive):
+        - S = 0.5: electron spin
+        - S = 1.0: typical magnetic ion
+        - S = 100: classical limit (large S)
+    initial_direction : list [x, y, z], optional
+        Starting spin direction vector
+        Default is [0, 0, 1] (pointing up along z-axis)
+        Will be automatically normalized
         
     Examples
     --------
+    >>> # Create electron spin (S=1/2) pointing down initially
     >>> spin = HeisenbergSpinType(S=0.5, initial_direction=[0, 0, -1])
-    >>> field = np.array([0, 0, 1.5])
-    >>> m = spin.calculate_magnetization(field, temperature=1.0)
+    >>> 
+    >>> # Apply field in +z direction
+    >>> field = [0, 0, 1.5]  # Field along z-axis
+    >>> magnetization = spin.calculate_magnetization(field, temperature=1.0)
+    >>> print(f"Magnetization vector: {magnetization}")  # [0, 0, some_positive_value]
     """
     
-    def __init__(self, S: float, initial_direction: np.ndarray = None):
+    def __init__(self, S, initial_direction=None):
+        """
+        Create a Heisenberg spin.
+        
+        Parameters
+        ----------
+        S : float
+            Spin quantum number (must be positive)
+            Common values: 0.5 (electron), 1.0 (typical ion), 100 (classical)
+        initial_direction : list [x, y, z], optional
+            Starting direction vector, default is [0, 0, 1] (up)
+        """
         if S <= 0:
             raise ValueError("Spin quantum number S must be positive")
         
@@ -198,23 +256,39 @@ class HeisenbergSpinType(BaseSpinType):
             else:
                 self.initial_direction = np.array([0.0, 0.0, 1.0])
     
-    def calculate_magnetization(self, 
-                              effective_field: Union[float, np.ndarray], 
-                              temperature: float) -> np.ndarray:
+    def calculate_magnetization(self, effective_field, temperature):
         """
-        Calculate Heisenberg magnetization: m = S * B_S(βh) * h/|h|.
+        Calculate the equilibrium magnetization vector of this Heisenberg spin.
         
         Parameters
         ----------
-        effective_field : float or np.ndarray
-            Effective magnetic field vector or scalar
+        effective_field : float or list/array [Hx, Hy, Hz]
+            Magnetic field acting on the spin:
+            - If number: field along z-axis (e.g., 1.5 means field = [0, 0, 1.5])
+            - If list/array: field vector [Hx, Hy, Hz]
         temperature : float
             Temperature (must be positive)
+            Higher temperature → smaller magnetization magnitude
             
         Returns
         -------
-        np.ndarray
-            Magnetization vector [mx, my, mz]
+        array [mx, my, mz]
+            Magnetization vector components:
+            - Points in same direction as the effective field
+            - Magnitude depends on field strength, temperature, and spin S
+            - Each component is between -S and +S
+            
+        Examples
+        --------
+        >>> spin = HeisenbergSpinType(S=1.0)
+        >>> 
+        >>> # Field along z-axis
+        >>> m = spin.calculate_magnetization(2.0, temperature=0.5)
+        >>> # Result: [0, 0, some_value] - only z-component non-zero
+        >>> 
+        >>> # Field in xy-plane  
+        >>> m = spin.calculate_magnetization([1.0, 1.0, 0], temperature=1.0)
+        >>> # Result: [mx, my, 0] - magnetization in xy-plane
         """
         if temperature <= 0:
             return self.S * self.initial_direction
