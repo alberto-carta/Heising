@@ -1,7 +1,6 @@
 # Mean Field Theory Library
 
-This library provides a modular implementation for solving mean field equations in mixed Ising-Heisenberg magnetic systems. It's a refactored version of the original `playaround_mean_field.py` with improved modularity and flexibility.
-
+This library provides a modular implementation for solving mean field equations in mixed Ising-Heisenberg magnetic systems. 
 ## Library Structure
 
 ```

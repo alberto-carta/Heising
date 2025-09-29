@@ -119,6 +119,125 @@ def calculate_effective_field(sublattice_index,
     
     return h_eff
 
+def calculate_kugel_khomskii_field( sublattice_index, 
+                            magnetizations, 
+                            coupling_matrix, 
+                            coordination_matrix, 
+                            sublattice_types, 
+                            sublattice_params,
+                            kugel_khomskii_coupling_matrix=None,
+                            external_fields=None):
+    """
+    Computes Kugel-Khomskii type effective field for a specific sublattice.
+    
+    This function implements the Kugel-Khomskii coupling scheme where sublattices
+    are organized in pairs: each Heisenberg spin is coupled to a corresponding
+    Ising (orbital) spin on the same atomic site.
+    
+    Parameters
+    ----------
+    sublattice_index : int
+        Index of sublattice to calculate field for
+    magnetizations : list
+        Current magnetizations of all sublattices
+    coupling_matrix : array
+        J[i,j] standard exchange coupling matrix
+    coordination_matrix : array
+        z[i,j] coordination number matrix
+    sublattice_types : list
+        Types of each sublattice
+    sublattice_params : list
+        Parameters for each sublattice
+    kugel_khomskii_coupling_matrix : array
+        K[i,j] Kugel-Khomskii coupling strengths between atomic sites
+        Shape: (N_sites, N_sites) where N_sites = N_sublattices/2
+    external_fields : dict, optional
+        External fields
+    
+    Convention:
+    - First half of sublattices: Heisenberg spins (sites 0, 1, 2, ...)
+    - Second half of sublattices: Ising spins (sites 0, 1, 2, ...)
+    - Sublattice i (Heisenberg) corresponds to sublattice i+N/2 (Ising)
+      where N is the total number of sublattices
+    
+    Example: For 4 sublattices total:
+    - Sublattice 0: Heisenberg spin on atom 0
+    - Sublattice 1: Heisenberg spin on atom 1  
+    - Sublattice 2: Ising spin on atom 0
+    - Sublattice 3: Ising spin on atom 1
+    """
+
+    # Split sublattices into Heisenberg and Ising groups
+    N = len(sublattice_types)
+    if N % 2 != 0:
+        raise ValueError("Total number of sublattices must be even for Kugel-Khomskii coupling.")
+    half_N = N // 2
+    heisenberg_indices = list(range(half_N))
+    ising_indices = list(range(half_N, N))
+
+    # first thing is to compute the effective field as usual
+    h_eff = calculate_effective_field(sublattice_index,
+                            magnetizations,
+                            coupling_matrix,
+                            coordination_matrix,
+                            sublattice_types,
+                            sublattice_params,
+                            external_fields)   
+     
+    # we then apply the Kugel-Khomskii coupling
+    # this looks like for the Heisenberg sublattices
+    #  H_eff_KK = Σ_j z[i,j] * K[i,j] * <m_j>/S_j * <σ_j> * <σ_i>
+    # and for the Ising sublattices
+    #  H_eff_KK = Σ_j z[i,j] * K[i,j] * <m_j>/S_j * <m_i>/S_i * <σ_j>
+    if kugel_khomskii_coupling_matrix is None:
+        raise ValueError("kugel_khomskii_coupling_matrix must be provided for Kugel-Khomskii coupling.")
+    K_matrix = kugel_khomskii_coupling_matrix
+    i = sublattice_index
+    target_type = sublattice_types[i]
+
+    match target_type:
+        case 'heisenberg':
+            # Heisenberg sublattice i corresponds to site i
+            site_i = i
+            sigma_i = magnetizations[i + half_N]  # Corresponding Ising magnetization
+            for jheis, jsing in zip(heisenberg_indices, ising_indices):
+                if jheis == i:
+                    continue  # Skip self-interaction
+                else:
+                    site_j = jheis  # Site index for source Heisenberg
+                    S_j = sublattice_params[jheis]['S']
+                    mag_j = magnetizations[jheis] / S_j  # normalized magnetization of source
+                    sigma_j = magnetizations[jsing]  # Ising magnetization (±1)
+                    coupling_strength = coordination_matrix[i][jheis] * K_matrix[site_i][site_j]
+                    
+                    # For Heisenberg target: contribution is vector * scalars = vector
+                    contribution = coupling_strength * mag_j * sigma_j * sigma_i
+                    h_eff += contribution  # Add full vector contribution
+        
+        case 'ising':
+            # Ising sublattice i corresponds to site i-half_N
+            site_i = i - half_N
+            mag_i = magnetizations[i - half_N] / sublattice_params[i - half_N]['S']  # Corresponding Heisenberg normalized mag
+            for jheis, jsing in zip(heisenberg_indices, ising_indices):
+                if jsing == i:
+                    continue  # Skip self-interaction
+                else:             
+                    site_j = jheis  # Site index for source Heisenberg
+                    S_j = sublattice_params[jheis]['S']
+                    mag_j = magnetizations[jheis] / S_j  # normalized magnetization of source
+                    sigma_j = magnetizations[jsing]  # Ising magnetization (±1)
+                    coupling_strength = coordination_matrix[i][jsing] * K_matrix[site_i][site_j]
+                    
+                    # For Ising target: take dot product to get scalar contribution
+                    # contribution = K[site_i,site_j] * <m_j> · <m_i> * sigma_j
+                    contribution = coupling_strength * np.dot(mag_j, mag_i) * sigma_j
+                    h_eff += contribution  # scalar field
+
+        case _:
+            raise ValueError(f"Unknown sublattice type: {target_type}")
+    
+    return h_eff
+
 
 class FieldCalculator:
     """
