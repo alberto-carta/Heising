@@ -106,7 +106,7 @@ S_magnitudes = [heisemberg_S, heisemberg_S, heisemberg_S, heisemberg_S, 1, 1, 1,
 
 system = setup_kugel_khomskii_system_4sites(heisenberg_S=100,
                                                 J_coupling=1,
-                                                K_coupling=-1)
+                                                K_coupling=-0.5)
 
 print(f"Magnetizations:")
 for i, (typ, mag) in enumerate(zip(system['sublattice_types'], system['magnetizations'])):
