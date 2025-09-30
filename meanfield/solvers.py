@@ -125,10 +125,54 @@ class MeanFieldSolver:
                 return False
         return True
     
+    def _rattle_magnetizations(self, magnetizations: List, rattle_strength: float = 0.1) -> List:
+        """
+        Add random perturbations to average magnetization values used in effective field calculations.
+        
+        This rattles the magnetization values that feed into the effective field calculations,
+        rather than the spin directions themselves. This is more physically meaningful as it
+        perturbs the mean field values while respecting the underlying spin constraints.
+        
+        Parameters
+        ----------
+        magnetizations : List[Union[float, np.ndarray]]
+            Current magnetizations
+        rattle_strength : float, optional
+            Strength of random perturbation (0 to 1), by default 0.1
+            
+        Returns
+        -------
+        List[Union[float, np.ndarray]]
+            Rattled magnetizations
+        """
+        rattled_mags = []
+        
+        for i, (mag, spin_type) in enumerate(zip(magnetizations, self.spin_types)):
+            if isinstance(mag, np.ndarray):
+                # Heisenberg magnetization: add random vector perturbation
+                random_vec = np.random.normal(0, rattle_strength, size=3)
+                new_mag = mag + random_vec
+                # Keep within reasonable bounds (don't exceed maximum possible magnetization)
+                max_mag = spin_type.get_max_magnetization()
+                if np.linalg.norm(new_mag) > max_mag:
+                    new_mag = new_mag / np.linalg.norm(new_mag) * max_mag
+                rattled_mags.append(new_mag)
+            else:
+                # Ising magnetization: add random perturbation, keep in valid range
+                random_val = np.random.normal(0, rattle_strength)
+                new_mag = mag + random_val
+                # Keep within physical bounds [-1, +1] for Ising
+                new_mag = np.clip(new_mag, -1.0, 1.0)
+                rattled_mags.append(new_mag)
+        
+        return rattled_mags
+    
     def solve_at_temperature(self,
                            temperature: float,
                            initial_guess: Optional[List] = None,
                            track_convergence: bool = False,
+                           rattle_iterations: int = 0,
+                           rattle_strength: float = 0.1,
                            **field_kwargs) -> Tuple[List, Dict[str, Any]]:
         """
         Solve mean field equations at a given temperature.
@@ -143,6 +187,10 @@ class MeanFieldSolver:
             - np.ndarray([x,y,z]) (for Heisenberg spins)
         track_convergence : bool, optional
             If True, store magnetization history for each iteration
+        rattle_iterations : int, optional
+            Number of iterations with spin rattling at the beginning, by default 0
+        rattle_strength : float, optional
+            Strength of random perturbations (0 to 1), by default 0.1
         **field_kwargs
             Additional parameters for field calculation
             
@@ -170,6 +218,9 @@ class MeanFieldSolver:
         
         # Iteration loop
         for iteration in range(self.max_iterations):
+            # Apply rattling for the first few iterations
+            if iteration < rattle_iterations:
+                magnetizations = self._rattle_magnetizations(magnetizations, rattle_strength)
             # Calculate effective fields for all sublattices
             effective_fields = []
             for i in range(len(self.spin_types)):
@@ -239,6 +290,9 @@ class MeanFieldSolver:
                               temperatures: np.ndarray,
                               initial_guess: Optional[List] = None,
                               use_previous: bool = True,
+                              reverse_order: bool = False,
+                              rattle_iterations: int = 0,
+                              rattle_strength: float = 0.1,
                               **field_kwargs) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """
         Solve equations for a range of temperatures.
@@ -248,9 +302,15 @@ class MeanFieldSolver:
         temperatures : np.ndarray
             Array of temperatures to solve
         initial_guess : List[Union[float, np.ndarray]], optional
-            Initial guess for first temperature
+            Initial guess for first temperature in the sweep
         use_previous : bool, optional
-            Whether to use previous solution as next initial guess, by default True
+            Whether to use previous solution as next initial guess (adiabatic continuation), by default True
+        reverse_order : bool, optional
+            If True, sweep temperatures in descending order (high to low), by default False
+        rattle_iterations : int, optional
+            Number of rattling iterations at each temperature, by default 0
+        rattle_strength : float, optional
+            Strength of random perturbations (0 to 1), by default 0.1
         **field_kwargs
             Additional parameters for field calculation
             
@@ -268,21 +328,33 @@ class MeanFieldSolver:
         n_temps = len(temperatures)
         n_sublattices = len(self.spin_types)
         
-        # Determine array shapes for storage
-        # We'll use object arrays to handle mixed Ising/Heisenberg systems
-        magnetizations_vs_T = []
-        convergence_infos = []
+        # Determine sweep order
+        if reverse_order:
+            temp_indices = list(reversed(range(n_temps)))
+            temp_sequence = temperatures[temp_indices]
+        else:
+            temp_indices = list(range(n_temps))
+            temp_sequence = temperatures
+        
+        # Arrays to store results in original temperature order
+        magnetizations_vs_T = [None] * n_temps
+        convergence_infos = [None] * n_temps
         
         current_guess = initial_guess
         
-        for i, T in enumerate(temperatures):
-            mags, info = self.solve_at_temperature(T, current_guess, **field_kwargs)
+        for seq_idx, temp_idx in enumerate(temp_indices):
+            T = temp_sequence[seq_idx]
+            mags, info = self.solve_at_temperature(T, current_guess, 
+                                                 rattle_iterations=rattle_iterations,
+                                                 rattle_strength=rattle_strength,
+                                                 **field_kwargs)
             
-            magnetizations_vs_T.append([np.copy(mag) if isinstance(mag, np.ndarray) else mag 
-                                       for mag in mags])
-            convergence_infos.append(info)
+            # Store results in original temperature order
+            magnetizations_vs_T[temp_idx] = [np.copy(mag) if isinstance(mag, np.ndarray) else mag 
+                                           for mag in mags]
+            convergence_infos[temp_idx] = info
             
-            # Use current solution as next initial guess
+            # Use current solution as next initial guess (adiabatic continuation)
             if use_previous:
                 current_guess = mags
             

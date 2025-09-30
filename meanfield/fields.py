@@ -241,10 +241,8 @@ def calculate_kugel_khomskii_field( sublattice_index,
 
 class FieldCalculator:
     """
-    Simple wrapper class for field calculations.
-    
-    This is just a convenient way to store system parameters and calculate fields.
-    You can also use the calculate_effective_field function directly.
+    Unified field calculator supporting both standard and Kugel-Khomskii methods.
+
     
     Parameters
     ----------
@@ -257,40 +255,86 @@ class FieldCalculator:
         ['ising', 'heisenberg', ...] for each sublattice
     sublattice_params : list of dict
         Parameters for each sublattice (must have 'S' for Heisenberg)
+    field_method : str, optional
+        'standard' or 'kugel_khomskii'. Default is 'standard'
+    kugel_khomskii_coupling_matrix : array, optional
+        K[i,j] coupling matrix for Kugel-Khomskii method
+        Shape: (N_sites, N_sites) where N_sites = N_sublattices/2
     external_fields : dict, optional
         {sublattice_index: field} for external fields
         
     Examples
     --------
-    >>> # Create calculator for 2-spin system
-    >>> J = [[0, 1], [1, 0]]  # Antiferromagnetic (positive coupling)
-    >>> z = [[0, 1], [1, 0]]    # Single neighbors
-    >>> types = ['ising', 'ising']
-    >>> params = [{'model': 'ising'}, {'model': 'ising'}]  
-    >>> calc = FieldCalculator(J, z, types, params)
+    >>> # Standard field calculator
+    >>> J = [[0, 1], [1, 0]]
+    >>> z = [[0, 1], [1, 0]]
+    >>> calc = FieldCalculator(J, z, types, params, field_method='standard')
     >>> 
-    >>> # Calculate field
-    >>> mags = [0.8, -0.6]
-    >>> h_eff = calc.calculate_field(0, mags)
+    >>> # Kugel-Khomskii field calculator
+    >>> K = [[0, 0.5], [0.5, 0]]  # Site-based K matrix
+    >>> calc = FieldCalculator(J, z, types, params, 
+    ...                       field_method='kugel_khomskii',
+    ...                       kugel_khomskii_coupling_matrix=K)
     """
     
     def __init__(self, coupling_matrix, coordination_matrix, sublattice_types, 
-                 sublattice_params, external_fields=None):
+                 sublattice_params, field_method='standard',
+                 kugel_khomskii_coupling_matrix=None, external_fields=None):
         
         self.coupling_matrix = coupling_matrix
         self.coordination_matrix = coordination_matrix  
         self.sublattice_types = sublattice_types
         self.sublattice_params = sublattice_params
+        self.field_method = field_method
+        self.kugel_khomskii_coupling_matrix = kugel_khomskii_coupling_matrix
         self.external_fields = external_fields or {}
+        
+        # Validate Kugel-Khomskii setup
+        if field_method == 'kugel_khomskii':
+            if kugel_khomskii_coupling_matrix is None:
+                raise ValueError("kugel_khomskii_coupling_matrix must be provided when field_method='kugel_khomskii'")
+            
+            N = len(sublattice_types)
+            if N % 2 != 0:
+                raise ValueError("Total number of sublattices must be even for Kugel-Khomskii coupling")
+                
+            expected_k_shape = (N // 2, N // 2)
+            k_shape = np.array(kugel_khomskii_coupling_matrix).shape
+            if k_shape != expected_k_shape:
+                raise ValueError(f"kugel_khomskii_coupling_matrix shape {k_shape} doesn't match expected {expected_k_shape}")
     
     def calculate_field(self, sublattice_index, magnetizations):
-        """Calculate effective field for a sublattice."""
-        return calculate_effective_field(
-            sublattice_index, magnetizations,
-            self.coupling_matrix, self.coordination_matrix,
-            self.sublattice_types, self.sublattice_params,
-            self.external_fields
-        )
+        """
+        Calculate effective field for a sublattice using the configured method.
+        
+        Parameters
+        ----------
+        sublattice_index : int
+            Index of sublattice to calculate field for
+        magnetizations : list
+            Current magnetizations of all sublattices
+            
+        Returns
+        -------
+        Field value (scalar for Ising, vector for Heisenberg)
+        """
+        if self.field_method == 'standard':
+            return calculate_effective_field(
+                sublattice_index, magnetizations,
+                self.coupling_matrix, self.coordination_matrix,
+                self.sublattice_types, self.sublattice_params,
+                self.external_fields
+            )
+        elif self.field_method == 'kugel_khomskii':
+            return calculate_kugel_khomskii_field(
+                sublattice_index, magnetizations,
+                self.coupling_matrix, self.coordination_matrix,
+                self.sublattice_types, self.sublattice_params,
+                self.kugel_khomskii_coupling_matrix,
+                self.external_fields
+            )
+        else:
+            raise ValueError(f"Unknown field_method: {self.field_method}")
     
     def add_external_field(self, sublattice_index, external_field):
         """Add external field to a sublattice."""

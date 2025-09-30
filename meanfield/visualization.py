@@ -17,7 +17,8 @@ def plot_magnetizations(temperatures: np.ndarray,
     """
     Plot magnetization vs temperature for multiple sublattices.
     
-    This is a direct translation of the plot_results function from the original code.
+    Enhanced version with improved markers: squares for Ising, circles for Heisenberg,
+    larger marker sizes for better visibility.
     
     Parameters
     ----------
@@ -37,16 +38,18 @@ def plot_magnetizations(temperatures: np.ndarray,
     >>> params = [{'model': 'ising'}, {'model': 'heisenberg', 'S': 0.5}]
     >>> plot_magnetizations(temps, mags_list, params)
     """
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 8))
     
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
-    markers = ['o', 'x', 's', '^', 'v', 'd', '+', '*']
+    # Enhanced color palette with better contrast
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+              '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
     for i, (magnetizations, params) in enumerate(zip(magnetizations_list, sublattice_params)):
         color = colors[i % len(colors)]
-        marker = markers[i % len(markers)]
         
+        # Choose marker based on model type
         if params['model'] == 'heisenberg':
+            marker = 'o'  # Circle for Heisenberg
             # For Heisenberg spins, plot z-component normalized by S
             if magnetizations.ndim == 2:  # Vector case (shape is [temps, 3])
                 mag_values = magnetizations[:, 2] / params['S']  # z-component normalized by S
@@ -56,18 +59,21 @@ def plot_magnetizations(temperatures: np.ndarray,
                 mag_values = magnetizations / params['S']
                 label = f'$m_{{{i+1}}}/S$ (Heisenberg S={params["S"]})'
         else:  # Ising
+            marker = 's'  # Square for Ising
             # For Ising spins, magnetization is already normalized (max = 1)
             mag_values = magnetizations
             label = f'$m_{{{i+1}}}$ (Ising)'
         
         plt.plot(temperatures, mag_values, marker=marker, linestyle='-', 
-                label=label, markersize=4, color=color, alpha=0.8)
+                label=label, markersize=8, color=color, alpha=0.8, 
+                linewidth=2, markeredgecolor='white', markeredgewidth=0.5)
     
-    plt.xlabel('Temperature (T/|J|)')
-    plt.ylabel('Normalized Sublattice Magnetization')
-    plt.title(title)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xlabel('Temperature (T/|J|)', fontsize=14)
+    plt.ylabel('Normalized Sublattice Magnetization', fontsize=14)
+    plt.title(title, fontsize=16, fontweight='bold')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.6)
+    plt.tick_params(axis='both', which='major', labelsize=12)
     plt.tight_layout()
     plt.show()
 

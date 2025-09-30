@@ -53,9 +53,17 @@ class MagneticSystem:
         Convention: J < 0 = ferromagnetic, J > 0 = antiferromagnetic
     coordination_matrix : np.ndarray
         Coordination matrix z[i,j] between sublattices
+    field_method : str, optional
+        Field calculation method: 'standard' or 'kugel_khomskii', by default 'standard'
+    kugel_khomskii_coupling_matrix : np.ndarray, optional
+        K[i,j] coupling matrix for Kugel-Khomskii method between atomic sites
+        Required when field_method='kugel_khomskii'
+    max_iterations : int, optional
+        Maximum number of solver iterations, by default 500
         
     Examples
     --------
+    >>> # Standard system
     >>> sublattices = [
     ...     SublatticeDef('ising', initial_direction=1),
     ...     SublatticeDef('heisenberg', S=0.5, initial_direction=[0,0,-1])
@@ -63,16 +71,28 @@ class MagneticSystem:
     >>> J = np.array([[0, -1], [-1, 0]])
     >>> z = np.array([[0, 2], [2, 0]])
     >>> system = MagneticSystem(sublattices, J, z)
+    >>> 
+    >>> # Kugel-Khomskii system
+    >>> K = np.array([[0, 0.5], [0.5, 0]])  # Site-based coupling
+    >>> system = MagneticSystem(sublattices, J, z, 
+    ...                        field_method='kugel_khomskii',
+    ...                        kugel_khomskii_coupling_matrix=K)
     """
     
     def __init__(self,
                  sublattice_defs: List[SublatticeDef],
                  coupling_matrix: np.ndarray,
-                 coordination_matrix: np.ndarray):
+                 coordination_matrix: np.ndarray,
+                 field_method: str = 'standard',
+                 kugel_khomskii_coupling_matrix: Optional[np.ndarray] = None,
+                 max_iterations: int = 500):
         
         self.sublattice_defs = sublattice_defs
         self.coupling_matrix = np.array(coupling_matrix)
         self.coordination_matrix = np.array(coordination_matrix)
+        self.field_method = field_method
+        self.kugel_khomskii_coupling_matrix = kugel_khomskii_coupling_matrix
+        self.max_iterations = max_iterations
         
         # Create spin types
         self.spin_types = []
@@ -95,18 +115,20 @@ class MagneticSystem:
             self.spin_types.append(spin_type)
             self.sublattice_params.append(params)
         
-        # Create field calculator
+        # Create field calculator with appropriate method
         self.field_calculator = FieldCalculator(
             coupling_matrix=self.coupling_matrix,
             coordination_matrix=self.coordination_matrix,
             sublattice_types=self.sublattice_types,
-            sublattice_params=self.sublattice_params
+            sublattice_params=self.sublattice_params,
+            field_method=self.field_method,
+            kugel_khomskii_coupling_matrix=self.kugel_khomskii_coupling_matrix
         )
         
-        # Create solver
-        self.solver = MeanFieldSolver(self.spin_types, self.field_calculator)
+        # Create solver with specified max iterations
+        self.solver = MeanFieldSolver(self.spin_types, self.field_calculator, max_iterations=self.max_iterations)
     
-    def solve_at_temperature(self, temperature: float):
+    def solve_at_temperature(self, temperature: float, **kwargs):
         """
         Solve system at given temperature.
         
@@ -114,15 +136,17 @@ class MagneticSystem:
         ----------
         temperature : float
             Temperature in energy units
+        **kwargs
+            Additional solver parameters (e.g., rattle_iterations, rattle_strength)
             
         Returns
         -------
         Tuple[List[Union[float, np.ndarray]], Dict[str, Any]]
             (magnetizations, convergence_info)
         """
-        return self.solver.solve_at_temperature(temperature)
+        return self.solver.solve_at_temperature(temperature, **kwargs)
     
-    def solve_temperature_range(self, temperatures: np.ndarray):
+    def solve_temperature_range(self, temperatures: np.ndarray, **kwargs):
         """
         Solve system over temperature range.
         
@@ -130,10 +154,12 @@ class MagneticSystem:
         ----------
         temperatures : np.ndarray
             Array of temperatures
+        **kwargs
+            Additional solver parameters (e.g., rattle_iterations, rattle_strength, reverse_order)
             
         Returns
         -------
         Tuple[np.ndarray, List[Dict[str, Any]]]
             (magnetizations_vs_T, convergence_infos)
         """
-        return self.solver.solve_temperature_sweep(temperatures)
+        return self.solver.solve_temperature_sweep(temperatures, **kwargs)
