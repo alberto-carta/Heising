@@ -1,1 +1,54 @@
 Agents.md
+meanfield/__pycache__/fields.cpython-312.pyc
+meanfield/__pycache__/solvers.cpython-312.pyc
+meanfield/__pycache__/systems.cpython-312.pyc
+meanfield/__pycache__/visualization.cpython-312.pyc
+
+# C++ Compiled files
+*.o
+*.obj
+monte_carlo/monte_carlo_sim
+monte_carlo/mc_legacy
+*.exe
+*.out
+
+# Compiled libraries
+*.a
+*.so
+*.dylib
+*.dll
+*.lib
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Data output files
+monte_carlo/ising_results.dat
+monte_carlo/heisenberg_results.dat
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python cache (general)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temporary and backup files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# OS files
+Thumbs.db
+Desktop.ini
