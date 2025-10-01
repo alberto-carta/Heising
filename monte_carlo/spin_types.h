@@ -28,10 +28,11 @@ enum class SpinType {
 //     // Do Heisenberg stuff
 // }
 
-// Structure for 2D lattice coordinates
+// Structure for 3D lattice coordinates
 struct lat_type {
     int x;
     int y;
+    int z;
 };
 
 // Structure for 3D spin vectors (used in Heisenberg model)

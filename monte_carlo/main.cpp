@@ -17,19 +17,19 @@
 long int seed = -12345;  // Negative seed for initialization
 
 // Simulation parameters
-const int lattice_size = 16;           // Lattice size (16x16)
+const int lattice_size = 8;            // Lattice size (8x8x8 for 3D)
 const double T_max = 6.0;              // Starting temperature
 const double T_min = 0.1;              // Final temperature
 const double T_step = 0.1;             // Temperature step
-const double coupling_J = -1.0;        // Antiferromagnetic coupling (J > 0)
-const int warmup_steps = 8000;        // Warmup steps for equilibration
-const int sweeps = 40000;             // Monte Carlo sweeps for averaging
+const double coupling_J = 1.0;        // Antiferromagnetic coupling (J > 0)
+const int warmup_steps = 50000;       // Warmup steps for equilibration (increased for Heisenberg)
+const int sweeps = 100000;             // Monte Carlo sweeps for averaging
 
 void print_header() {
     std::cout << "========================================" << std::endl;
     std::cout << "   Monte Carlo Temperature Sweeps      " << std::endl;
     std::cout << "========================================" << std::endl;
-    std::cout << "Lattice size: " << lattice_size << "x" << lattice_size << std::endl;
+    std::cout << "Lattice size: " << lattice_size << "x" << lattice_size << "x" << lattice_size << " (3D)" << std::endl;
     std::cout << "Temperature range: " << T_max << " to " << T_min << " (step: " << T_step << ")" << std::endl;
     std::cout << "Coupling J: " << coupling_J << " (antiferromagnetic)" << std::endl;
     std::cout << "Warmup: " << warmup_steps << " steps" << std::endl;
@@ -52,8 +52,8 @@ void run_temperature_sweep(SpinType model_type, const std::string& filename) {
     
     // Write header to data file
     data_file << "# " << model_name << " Model Monte Carlo Temperature Sweep" << std::endl;
-    data_file << "# Lattice size: " << lattice_size << "x" << lattice_size 
-              << ", J = " << coupling_J << std::endl;
+    data_file << "# Lattice size: " << lattice_size << "x" << lattice_size << "x" << lattice_size 
+              << " (3D), J = " << coupling_J << std::endl;
     data_file << "# Columns: T, M_avg, |M|_avg, M^2_avg, E_avg, E^2_avg" << std::endl;
     data_file << "Temperature,Magnetization,AbsMagnetization,MagSqAvg,Energy,EnergySqAvg" << std::endl;
     
@@ -67,7 +67,10 @@ void run_temperature_sweep(SpinType model_type, const std::string& filename) {
         sim.initialize_lattice();
         
         // Warmup phase
-        sim.run_transient_phase(warmup_steps);
+        sim.run_warmup_phase(warmup_steps);
+        
+        // Reset statistics after warmup (we only want production statistics)
+        sim.reset_statistics();
         
         // Sweep phase - collect statistics
         double M_sum = 0.0, M_abs_sum = 0.0, M_sq_sum = 0.0;
@@ -100,9 +103,11 @@ void run_temperature_sweep(SpinType model_type, const std::string& filename) {
                   << T << "," << M_avg << "," << M_abs_avg << "," << M_sq_avg
                   << "," << E_avg << "," << E_sq_avg << std::endl;
         
-        // Print progress
+        // Print progress with acceptance rate
+        double acceptance_rate = sim.get_acceptance_rate();
         std::cout << "<|M|> = " << std::setprecision(3) << M_abs_avg 
-                  << ", <E> = " << E_avg << std::endl;
+                  << ", <E> = " << E_avg 
+                  << ", Accept = " << std::setprecision(1) << acceptance_rate << "%" << std::endl;
     }
     
     data_file.close();
@@ -111,25 +116,12 @@ void run_temperature_sweep(SpinType model_type, const std::string& filename) {
 }
 
 void analyze_critical_behavior() {
-    std::cout << "=== CRITICAL BEHAVIOR ANALYSIS ===" << std::endl;
+    std::cout << "=== SIMULATION COMPLETED ===" << std::endl;
     std::cout << std::endl;
     
-    std::cout << "Expected critical temperatures:" << std::endl;
-    std::cout << "• Ising 2D:       T_c ≈ 2.27 (exact: 2/ln(1+√2) ≈ 2.269)" << std::endl;
-    std::cout << "• Heisenberg 2D:  T_c ≈ ∞ (no finite-T transition)" << std::endl;
-    std::cout << std::endl;
-    
-    std::cout << "What to look for in the data:" << std::endl;
-    std::cout << "• Ising: Sharp drop in |M| near T_c ≈ 2.27" << std::endl;
-    std::cout << "• Heisenberg: Gradual decrease in |M| (no sharp transition)" << std::endl;
-    std::cout << "• Energy: Smooth variation for both models" << std::endl;
-    std::cout << std::endl;
-    
-    std::cout << "To find T_c for Ising model:" << std::endl;
-    std::cout << "1. Plot |M| vs T from ising_results.dat" << std::endl;
-    std::cout << "2. Look for the steepest drop in magnetization" << std::endl;
-    std::cout << "3. Calculate susceptibility χ = (⟨M²⟩ - ⟨|M|⟩²)/T" << std::endl;
-    std::cout << "4. T_c is where χ peaks" << std::endl;
+    std::cout << "Output files generated:" << std::endl;
+    std::cout << "• ising_results.dat - Ising model temperature sweep" << std::endl;
+    std::cout << "• heisenberg_results.dat - Heisenberg model temperature sweep" << std::endl;
     std::cout << std::endl;
 }
 

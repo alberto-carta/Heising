@@ -13,11 +13,30 @@
 #include <iomanip>
 #include <cmath>
 
-extern long int seed;  // Use the same random seed as the rest of the program
+// External seed from main.cpp - needed for random number generation
+extern long int seed;
+
+// Run warmup phase to equilibrate the system
+void MonteCarloSimulation::run_warmup_phase(int warmup_steps) {
+    std::cout << "Running warmup phase (" << warmup_steps << " steps)..." << std::endl;
+    
+    for (int step = 0; step < warmup_steps; step++) {
+        run_monte_carlo_step();
+        
+        // Progress report every 1000 steps
+        if ((step + 1) % 1000 == 0) {
+            std::cout << "Warmup: " << (step + 1) << "/" << warmup_steps 
+                      << " (" << (100.0 * (step + 1) / warmup_steps) << "%)" << std::endl;
+        }
+    }
+    
+    std::cout << "Warmup phase completed." << std::endl;
+}
 
 // Constructor - this is where the magic happens!
 MonteCarloSimulation::MonteCarloSimulation(SpinType type, int size, double T, double J) 
-    : model_type(type), lattice_size(size), temperature(T), coupling_J(J), max_rotation_angle(0.5) {
+    : model_type(type), lattice_size(size), temperature(T), coupling_J(J), max_rotation_angle(1.5),
+      total_attempts(0), total_acceptances(0) {
     
 
     // this is equivalent to:
@@ -40,7 +59,7 @@ MonteCarloSimulation::MonteCarloSimulation(SpinType type, int size, double T, do
             std::cout << "Unknown";
     }
     std::cout << std::endl;
-    std::cout << "Lattice size: " << size << "x" << size << std::endl;
+    std::cout << "Lattice size: " << size << "x" << size << "x" << size << std::endl;
     std::cout << "Temperature: " << T << ", Coupling: " << J << std::endl;
     
     // Allocate memory based on model type
@@ -67,30 +86,27 @@ void MonteCarloSimulation::setup_function_pointers() {
     }
 }
 
-// Memory allocation - only allocate what we need based on model type
+// Memory allocation - clean and efficient with Eigen arrays!
 void MonteCarloSimulation::allocate_memory() {
-    std::cout << "Allocating memory for " << lattice_size << "x" << lattice_size << " lattice..." << std::endl;
+    std::cout << "Allocating memory for " << lattice_size << "x" << lattice_size << "x" << lattice_size;
     
-    // Initialize both pointers to nullptr for safety
-    ising_lattice = nullptr;
-    heisenberg_lattice = nullptr;
+    // Calculate total size for flattened 3D array
+    int total_size = (lattice_size + 1) * (lattice_size + 1) * (lattice_size + 1);
     
     switch (model_type) {
         case SpinType::ISING:
-            std::cout << "Allocating memory for Ising spins (integers)..." << std::endl;
-            // Allocate 2D array for Ising spins (integers: +1 or -1)
-            ising_lattice = new int*[lattice_size + 1];  // +1 for boundary conditions
-            for (int i = 0; i <= lattice_size; i++) {
-                ising_lattice[i] = new int[lattice_size + 1];
-            }
+            std::cout << " Ising lattice (3D)..." << std::endl;
+            // Equivalent to np.zeros((size+1, size+1, size+1), dtype=int)
+            ising_lattice = Eigen::Array<int, Eigen::Dynamic, 1>::Zero(total_size);
             break;
             
         case SpinType::HEISENBERG:
-            std::cout << "Allocating memory for Heisenberg spins (3D vectors)..." << std::endl;
-            // Allocate 2D array for Heisenberg spins (3D vectors)
-            heisenberg_lattice = new spin3d*[lattice_size + 1];
-            for (int i = 0; i <= lattice_size; i++) {
-                heisenberg_lattice[i] = new spin3d[lattice_size + 1];
+            std::cout << " Heisenberg lattice (3D)..." << std::endl;
+            // Equivalent to np.zeros((size+1, size+1, size+1), dtype=spin3d)
+            heisenberg_lattice = Eigen::Array<spin3d, Eigen::Dynamic, 1>(total_size);
+            // Initialize all spins to (0,0,0) - this requires a loop since spin3d is custom type
+            for (int i = 0; i < total_size; i++) {
+                heisenberg_lattice(i) = spin3d(0.0, 0.0, 0.0);
             }
             break;
             
@@ -99,7 +115,7 @@ void MonteCarloSimulation::allocate_memory() {
             exit(1);
     }
     
-    std::cout << "Memory allocated successfully!" << std::endl;
+    std::cout << "Memory allocated successfully with Eigen!" << std::endl;
 }
 
 // Destructor - clean up allocated memory
@@ -108,31 +124,9 @@ MonteCarloSimulation::~MonteCarloSimulation() {
 }
 
 void MonteCarloSimulation::deallocate_memory() {
-    switch (model_type) {
-        case SpinType::ISING:
-            if (ising_lattice != nullptr) {
-                for (int i = 0; i <= lattice_size; i++) {
-                    delete[] ising_lattice[i];
-                }
-                delete[] ising_lattice;
-                ising_lattice = nullptr;
-            }
-            break;
-            
-        case SpinType::HEISENBERG:
-            if (heisenberg_lattice != nullptr) {
-                for (int i = 0; i <= lattice_size; i++) {
-                    delete[] heisenberg_lattice[i];
-                }
-                delete[] heisenberg_lattice;
-                heisenberg_lattice = nullptr;
-            }
-            break;
-            
-        default:
-            // Nothing to deallocate for unknown types
-            break;
-    }
+    // Eigen arrays handle their own memory management automatically!
+    // No manual deallocation needed - destructors handle everything
+    std::cout << "Memory automatically managed by Eigen - no manual deallocation needed!" << std::endl;
 }
 
 // ========================================================================================
@@ -140,20 +134,24 @@ void MonteCarloSimulation::deallocate_memory() {
 // ========================================================================================
 
 // Calculate the local energy of an Ising spin at position pos
-// This is the energy due to interactions with nearest neighbors
+// This is the energy due to interactions with nearest neighbors in 3D
 double MonteCarloSimulation::ising_local_energy(lat_type pos) {
     // Get the spin value at this position (+1 or -1)
-    int current_spin = ising_lattice[pos.x][pos.y];
+    int current_index = flatten_index(pos.x, pos.y, pos.z);
+    int current_spin = ising_lattice(current_index);
     
-    // Calculate neighbor positions with periodic boundary conditions
+    // Calculate neighbor positions with periodic boundary conditions (3D)
     int left   = (pos.x == 1) ? lattice_size : pos.x - 1;
     int right  = (pos.x == lattice_size) ? 1 : pos.x + 1;
     int up     = (pos.y == lattice_size) ? 1 : pos.y + 1;
     int down   = (pos.y == 1) ? lattice_size : pos.y - 1;
+    int front  = (pos.z == lattice_size) ? 1 : pos.z + 1;
+    int back   = (pos.z == 1) ? lattice_size : pos.z - 1;
     
-    // Sum the neighboring spins
-    int neighbor_sum = ising_lattice[left][pos.y]  + ising_lattice[right][pos.y] +
-                       ising_lattice[pos.x][up]   + ising_lattice[pos.x][down];
+    // Sum the neighboring spins (6 neighbors in 3D)
+    int neighbor_sum = ising_lattice(flatten_index(left, pos.y, pos.z))  + ising_lattice(flatten_index(right, pos.y, pos.z)) +
+                       ising_lattice(flatten_index(pos.x, up, pos.z))    + ising_lattice(flatten_index(pos.x, down, pos.z)) +
+                       ising_lattice(flatten_index(pos.x, pos.y, front)) + ising_lattice(flatten_index(pos.x, pos.y, back));
     
     // Ising interaction energy: E = +J * spin * sum_of_neighbors  
     // J > 0: antiferromagnetic (favors opposite neighbors)
@@ -167,7 +165,8 @@ double MonteCarloSimulation::ising_local_energy(lat_type pos) {
 void MonteCarloSimulation::ising_propose_flip(lat_type pos) {
     // Ising model: spin flip means multiply by -1
     // +1 becomes -1, -1 becomes +1
-    ising_lattice[pos.x][pos.y] = -ising_lattice[pos.x][pos.y];
+    int index = flatten_index(pos.x, pos.y, pos.z);
+    ising_lattice(index) = -ising_lattice(index);
     
     // That's it! Ising moves are simple - just flip the spin
 }
@@ -177,14 +176,17 @@ double MonteCarloSimulation::ising_total_energy() {
     double total_energy = 0.0;
     lat_type pos;
     
-    // Sum over all lattice sites
+    // Sum over all lattice sites (3D now!)
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
-            pos.x = x;
-            pos.y = y;
-            
-            // Add the local energy at this position
-            total_energy += ising_local_energy(pos);
+            for (int z = 1; z <= lattice_size; z++) {
+                pos.x = x;
+                pos.y = y;
+                pos.z = z;
+                
+                // Add the local energy at this position
+                total_energy += ising_local_energy(pos);
+            }
         }
     }
     
@@ -197,10 +199,13 @@ double MonteCarloSimulation::ising_total_energy() {
 double MonteCarloSimulation::ising_total_magnetization() {
     double total_magnetization = 0.0;
     
-    // Sum all spin values (+1 or -1)
+    // Sum all spin values (+1 or -1) over 3D lattice
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
-            total_magnetization += ising_lattice[x][y];
+            for (int z = 1; z <= lattice_size; z++) {
+                int index = flatten_index(x, y, z);
+                total_magnetization += ising_lattice(index);
+            }
         }
     }
     
@@ -212,23 +217,28 @@ double MonteCarloSimulation::ising_total_magnetization() {
 // ========================================================================================
 
 // Calculate the local energy of a Heisenberg spin at position pos
-// This uses dot products between 3D spin vectors
+// This uses dot products between 3D spin vectors in 3D lattice
 double MonteCarloSimulation::heisenberg_local_energy(lat_type pos) {
     // Get the current 3D spin vector at this position
-    spin3d current_spin = heisenberg_lattice[pos.x][pos.y];
+    int current_index = flatten_index(pos.x, pos.y, pos.z);
+    spin3d current_spin = heisenberg_lattice(current_index);
     
-    // Calculate neighbor positions with periodic boundary conditions
+    // Calculate neighbor positions with periodic boundary conditions (3D)
     int left   = (pos.x == 1) ? lattice_size : pos.x - 1;
     int right  = (pos.x == lattice_size) ? 1 : pos.x + 1;
     int up     = (pos.y == lattice_size) ? 1 : pos.y + 1;
     int down   = (pos.y == 1) ? lattice_size : pos.y - 1;
+    int front  = (pos.z == lattice_size) ? 1 : pos.z + 1;
+    int back   = (pos.z == 1) ? lattice_size : pos.z - 1;
     
-    // Sum the dot products with all 4 nearest neighbors
+    // Sum the dot products with all 6 nearest neighbors in 3D
     double neighbor_dot_sum = 0.0;
-    neighbor_dot_sum += current_spin.dot(heisenberg_lattice[left][pos.y]);   // Left neighbor
-    neighbor_dot_sum += current_spin.dot(heisenberg_lattice[right][pos.y]);  // Right neighbor  
-    neighbor_dot_sum += current_spin.dot(heisenberg_lattice[pos.x][up]);     // Up neighbor
-    neighbor_dot_sum += current_spin.dot(heisenberg_lattice[pos.x][down]);   // Down neighbor
+    neighbor_dot_sum += current_spin.dot(heisenberg_lattice(flatten_index(left, pos.y, pos.z)));   // Left neighbor
+    neighbor_dot_sum += current_spin.dot(heisenberg_lattice(flatten_index(right, pos.y, pos.z)));  // Right neighbor  
+    neighbor_dot_sum += current_spin.dot(heisenberg_lattice(flatten_index(pos.x, up, pos.z)));     // Up neighbor
+    neighbor_dot_sum += current_spin.dot(heisenberg_lattice(flatten_index(pos.x, down, pos.z)));   // Down neighbor
+    neighbor_dot_sum += current_spin.dot(heisenberg_lattice(flatten_index(pos.x, pos.y, front)));  // Front neighbor
+    neighbor_dot_sum += current_spin.dot(heisenberg_lattice(flatten_index(pos.x, pos.y, back)));   // Back neighbor
     
     // Heisenberg interaction energy: E = +J * (S_i · S_j) summed over neighbors
     // J > 0: antiferromagnetic (favors antiparallel spins, negative dot products)
@@ -243,19 +253,21 @@ void MonteCarloSimulation::heisenberg_propose_flip(lat_type pos) {
     // Simple hybrid strategy: mix small rotations with spin flips
     // Hardcoded 10% spin flips for now (can be made adjustable later)
     
+    int index = flatten_index(pos.x, pos.y, pos.z);
+    
     if (ran1(&seed) < 0.1) {  // 10% of moves are spin flips
         // SPIN FLIP: Reverse the spin direction (multiply by -1)
         // This is analogous to Ising flip but in 3D: S → -S
-        spin3d current_spin = heisenberg_lattice[pos.x][pos.y];
-        heisenberg_lattice[pos.x][pos.y].x = -current_spin.x;
-        heisenberg_lattice[pos.x][pos.y].y = -current_spin.y;
-        heisenberg_lattice[pos.x][pos.y].z = -current_spin.z;
+        spin3d current_spin = heisenberg_lattice(index);
+        heisenberg_lattice(index).x = -current_spin.x;
+        heisenberg_lattice(index).y = -current_spin.y;
+        heisenberg_lattice(index).z = -current_spin.z;
         
     } else {  // 90% of moves are small rotations
         // LOCAL ROTATION: Small rotation around current orientation
-        spin3d current_spin = heisenberg_lattice[pos.x][pos.y];
+        spin3d current_spin = heisenberg_lattice(index);
         spin3d new_spin = small_random_change(current_spin, max_rotation_angle);
-        heisenberg_lattice[pos.x][pos.y] = new_spin;
+        heisenberg_lattice(index) = new_spin;
     }
 }
 
@@ -264,14 +276,17 @@ double MonteCarloSimulation::heisenberg_total_energy() {
     double total_energy = 0.0;
     lat_type pos;
     
-    // Sum over all lattice sites
+    // Sum over all lattice sites (3D now!)
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
-            pos.x = x;
-            pos.y = y;
-            
-            // Add the local energy at this position
-            total_energy += heisenberg_local_energy(pos);
+            for (int z = 1; z <= lattice_size; z++) {
+                pos.x = x;
+                pos.y = y;
+                pos.z = z;
+                
+                // Add the local energy at this position
+                total_energy += heisenberg_local_energy(pos);
+            }
         }
     }
     
@@ -284,13 +299,16 @@ double MonteCarloSimulation::heisenberg_total_magnetization() {
     // For Heisenberg model, magnetization is the magnitude of the vector sum
     spin3d total_moment(0.0, 0.0, 0.0);  // Start with zero vector
     
-    // Sum all spin vectors
+    // Sum all spin vectors over 3D lattice
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
-            spin3d current_spin = heisenberg_lattice[x][y];
-            total_moment.x += current_spin.x;
-            total_moment.y += current_spin.y;  
-            total_moment.z += current_spin.z;
+            for (int z = 1; z <= lattice_size; z++) {
+                int index = flatten_index(x, y, z);
+                spin3d current_spin = heisenberg_lattice(index);
+                total_moment.x += current_spin.x;
+                total_moment.y += current_spin.y;  
+                total_moment.z += current_spin.z;
+            }
         }
     }
     
@@ -308,23 +326,29 @@ void MonteCarloSimulation::initialize_lattice() {
     
     switch (model_type) {
         case SpinType::ISING:
-            // Initialize Ising spins randomly to +1 or -1
+            // Initialize Ising spins randomly to +1 or -1 over 3D lattice
             for (int x = 1; x <= lattice_size; x++) {
                 for (int y = 1; y <= lattice_size; y++) {
-                    if (ran1(&seed) >= 0.5) {
-                        ising_lattice[x][y] = 1;
-                    } else {
-                        ising_lattice[x][y] = -1;
+                    for (int z = 1; z <= lattice_size; z++) {
+                        int index = flatten_index(x, y, z);
+                        if (ran1(&seed) >= 0.5) {
+                            ising_lattice(index) = 1;
+                        } else {
+                            ising_lattice(index) = -1;
+                        }
                     }
                 }
             }
             break;
             
         case SpinType::HEISENBERG:
-            // Initialize Heisenberg spins to random unit vectors
+            // Initialize Heisenberg spins to random unit vectors over 3D lattice
             for (int x = 1; x <= lattice_size; x++) {
                 for (int y = 1; y <= lattice_size; y++) {
-                    heisenberg_lattice[x][y] = random_unit_vector();
+                    for (int z = 1; z <= lattice_size; z++) {
+                        int index = flatten_index(x, y, z);
+                        heisenberg_lattice(index) = random_unit_vector();
+                    }
                 }
             }
             break;
@@ -336,13 +360,25 @@ void MonteCarloSimulation::initialize_lattice() {
 // Run a single Monte Carlo step - clear and simple!
 void MonteCarloSimulation::run_monte_carlo_step() {
     lat_type pos;
-    int total_sites = lattice_size * lattice_size;
+    int total_sites = lattice_size * lattice_size * lattice_size;  // 3D now!
     
     // Do one sweep: attempt to update every spin once on average
     for (int attempt = 0; attempt < total_sites; attempt++) {
-        // Choose a random lattice position (indices from 1 to lattice_size)
+        // Choose a random lattice position (indices from 1 to lattice_size) in 3D
         pos.x = 1 + (int)(ran1(&seed) * lattice_size);
         pos.y = 1 + (int)(ran1(&seed) * lattice_size);
+        pos.z = 1 + (int)(ran1(&seed) * lattice_size);
+        
+        // Store the old spin value BEFORE proposing a move
+        int index = flatten_index(pos.x, pos.y, pos.z);
+        int old_ising_spin;
+        spin3d old_heisenberg_spin;
+        
+        if (model_type == SpinType::ISING) {
+            old_ising_spin = ising_lattice(index);
+        } else {
+            old_heisenberg_spin = heisenberg_lattice(index);
+        }
         
         // Calculate energy before the proposed move
         double energy_before = (this->*calculate_local_energy)(pos);
@@ -355,11 +391,18 @@ void MonteCarloSimulation::run_monte_carlo_step() {
         
         // Metropolis acceptance criterion
         double energy_change = energy_after - energy_before;
+        total_attempts++;
         if (!metropolis_test(energy_change)) {
-            // Reject: undo the move by flipping back
-            (this->*propose_spin_flip)(pos);
+            // Reject: restore the old spin value
+            if (model_type == SpinType::ISING) {
+                ising_lattice(index) = old_ising_spin;
+            } else {
+                heisenberg_lattice(index) = old_heisenberg_spin;
+            }
+        } else {
+            // Accepted: count the acceptance
+            total_acceptances++;
         }
-        // If accepted, we keep the new configuration
     }
 }
 
@@ -401,23 +444,6 @@ double MonteCarloSimulation::get_absolute_magnetization() {
     return std::abs(get_magnetization());  // Just use the function above
 }
 
-// Run transient phase to equilibrate the system
-void MonteCarloSimulation::run_transient_phase(int transient_steps) {
-    std::cout << "Running transient phase (" << transient_steps << " steps)..." << std::endl;
-    
-    for (int step = 0; step < transient_steps; step++) {
-        run_monte_carlo_step();
-        
-        // Print progress every 1000 steps
-        if ((step + 1) % 1000 == 0) {
-            std::cout << "Transient: " << (step + 1) << "/" << transient_steps 
-                      << " (" << (100.0 * (step + 1) / transient_steps) << "%)" << std::endl;
-        }
-    }
-    
-    std::cout << "Transient phase completed." << std::endl;
-}
-
 // Run a full simulation with specified number of Monte Carlo steps
 void MonteCarloSimulation::run_full_simulation(int mc_steps) {
     std::cout << "Running full simulation (" << mc_steps << " steps)..." << std::endl;
@@ -437,4 +463,22 @@ void MonteCarloSimulation::run_full_simulation(int mc_steps) {
     }
     
     std::cout << "Simulation completed!" << std::endl;
+}
+
+// ========================================================================================
+// METROPOLIS STATISTICS METHODS
+// ========================================================================================
+
+// Get current acceptance rate as a percentage
+double MonteCarloSimulation::get_acceptance_rate() const {
+    if (total_attempts == 0) {
+        return 0.0;
+    }
+    return (100.0 * total_acceptances) / total_attempts;
+}
+
+// Reset acceptance statistics (useful when starting a new temperature)
+void MonteCarloSimulation::reset_statistics() {
+    total_attempts = 0;
+    total_acceptances = 0;
 }

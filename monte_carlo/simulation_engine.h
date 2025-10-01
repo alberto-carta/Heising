@@ -10,6 +10,7 @@
 
 #include "spin_types.h"
 #include <fstream>
+#include <eigen3/Eigen/Dense>
 
 class MonteCarloSimulation {
 private:
@@ -20,9 +21,15 @@ private:
     double coupling_J;
     double max_rotation_angle;  // For Heisenberg model local updates
     
-    // Lattice data - we need both types since we don't know which model at compile time
-    int** ising_lattice;        // For Ising model: +1 or -1 spins
-    spin3d** heisenberg_lattice; // For Heisenberg model: 3D unit vectors
+    // Metropolis statistics
+    long int total_attempts;
+    long int total_acceptances;
+    
+    // Lattice data - using Eigen Array3D for NumPy-like functionality
+    // We'll use a flattened 1D array and index it as 3D: index = x*(size*size) + y*size + z
+    // Both models use the same 3D lattice geometry, but different spin types
+    Eigen::Array<int, Eigen::Dynamic, 1> ising_lattice;        // For Ising model: flattened 3D array of +1 or -1 spins
+    Eigen::Array<spin3d, Eigen::Dynamic, 1> heisenberg_lattice; // For Heisenberg model: flattened 3D array of 3D unit vectors
     
     // Function pointers - these will point to the right functions for the chosen model
     // Think of these as "pluggable" functions that we set once and then just call
@@ -41,7 +48,7 @@ public:
     
     // Main simulation methods
     void initialize_lattice();
-    void run_transient_phase(int transient_steps);
+    void run_warmup_phase(int warmup_steps);
     void run_monte_carlo_step();
     void run_full_simulation(int mc_steps);
     
@@ -49,6 +56,12 @@ public:
     double get_energy();
     double get_magnetization();
     double get_absolute_magnetization();
+    
+    // Metropolis statistics methods
+    double get_acceptance_rate() const;
+    long int get_total_attempts() const { return total_attempts; }
+    long int get_total_acceptances() const { return total_acceptances; }
+    void reset_statistics();
     
     // Parameter control
     void set_temperature(double T) { temperature = T; }
@@ -78,6 +91,11 @@ private:
     void setup_function_pointers();  // Sets the function pointers based on model_type
     void allocate_memory();
     void deallocate_memory();
+    
+    // Helper function to convert 3D indices (x,y,z) to 1D index for flattened array
+    inline int flatten_index(int x, int y, int z) const {
+        return x * (lattice_size + 1) * (lattice_size + 1) + y * (lattice_size + 1) + z;
+    }
 };
 
 #endif // SIMULATION_ENGINE_H
