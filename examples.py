@@ -199,9 +199,9 @@ def example_kugel_khomskii():
     sublattice_defs = [
         # Heisenberg spins (site indices 0-3)
         SublatticeDef('heisenberg', S=100, initial_direction=[0, 0, 1]),   # Site 0 spin
-        SublatticeDef('heisenberg', S=100, initial_direction=[0, 0, 1]),  # Site 1 spin
+        SublatticeDef('heisenberg', S=100, initial_direction=[0, 0, -1]),  # Site 1 spin
         SublatticeDef('heisenberg', S=100, initial_direction=[0, 0, -1]),  # Site 2 spin
-        SublatticeDef('heisenberg', S=100, initial_direction=[0, 0, -1]),   # Site 3 spin
+        SublatticeDef('heisenberg', S=100, initial_direction=[0, 0, 1]),   # Site 3 spin
         # Ising orbital spins (site indices 0-3)
         SublatticeDef('ising', initial_direction=+1),  # Site 0 orbital
         SublatticeDef('ising', initial_direction=-1),  # Site 1 orbital
@@ -213,9 +213,11 @@ def example_kugel_khomskii():
     # Same pattern as previous examples: separate Heisenberg and Ising groups
     # Using new convention: positive J = antiferromagnetic
     J_heis = 1.1
-    Jnext_heis = 0.1
-    J_ising = 0.6
-    Jnext_ising = 0.2
+    # Jnext_heis = 0.1
+    Jnext_heis = 0.0
+    J_ising = 0.5
+    # Jnext_ising = 0.2
+    Jnext_ising = 0.0
 
     J_matrix = np.array([
         # H0      H1       H2       H3       I0        I1        I2        I3
@@ -243,7 +245,8 @@ def example_kugel_khomskii():
     
     # Kugel-Khomskii coupling matrix K[i,j] between atomic sites (4x4 for 4 sites)
     # This couples Heisenberg and Ising spins on the same and neighboring sites
-    k_mag = -0.55
+    # k_mag = -0.55
+    k_mag = -0.49
     K_matrix = np.array([
         # Site 0, Site 1, Site 2, Site 3
         [ 0.0,  k_mag,   k_mag,   0.0 ],  # Site 0: KK coupling with sites 1,2
@@ -272,9 +275,9 @@ def example_kugel_khomskii():
     
     print("Solving Kugel-Khomskii system...")
     mags_kk, _ = system_kk.solve_temperature_range(temperatures,
-                                                 reverse_order=True,
-                                                 rattle_iterations=10, 
-                                                 rattle_strength=0.1)
+                                                 reverse_order=False,
+                                                 rattle_iterations=00, 
+                                                 rattle_strength=0.01)
     
     # Extract magnetizations for plotting
     mags_kk_list = []

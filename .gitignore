@@ -49,6 +49,11 @@ __pycache__/
 *.bak
 *.backup
 
+# Planning and temporary documentation
+*_plan.md
+*_notes.md
+*_temp.md
+
 # OS files
 Thumbs.db
 Desktop.ini
