@@ -1,0 +1,25 @@
+# Quick Heisenberg ferromagnet simulation for plotting
+[simulation]
+type = "temperature_scan"
+seed = -12345
+
+[lattice]
+size = 6
+
+[monte_carlo]
+warmup_steps = 2000
+measurement_steps = 10000
+sampling_frequency = 50
+
+[temperature]
+max = 5.0
+min = 1.0
+step = 0.4
+
+[output]
+base_name = "heisenberg_ferromagnet"
+directory = "."
+
+[input_files]
+species = "species.dat"
+couplings = "couplings.dat"

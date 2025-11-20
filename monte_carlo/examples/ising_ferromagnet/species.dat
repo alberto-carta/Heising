@@ -1,0 +1,2 @@
+# Ising species definition - single Ising spin per unit cell
+Fe_spin        Ising          0.0            0.0            0.0

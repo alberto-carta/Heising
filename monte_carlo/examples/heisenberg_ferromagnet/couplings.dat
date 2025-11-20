@@ -1,0 +1,34 @@
+# Coupling definition file  
+# Defines exchange interactions between magnetic species
+#
+# Columns:
+# Spin_1_name    Spin_2_name    Rx    Ry    Rz    J
+#
+# Spin_1_name, Spin_2_name: Must match names from species.dat
+# Rx, Ry, Rz: Unit cell offset indices (integers)
+# J: Exchange coupling strength (negative = ferromagnetic, positive = antiferromagnetic)
+#
+# Note: Ising-Heisenberg couplings not yet implemented (Kugel-Khomskii)
+#       Only Ising-Ising and Heisenberg-Heisenberg couplings supported
+#
+# Example: Ferromagnetic nearest-neighbor coupling (all 6 nearest neighbors)
+Fe_moment      Fe_moment      1     0     0     -1.0
+Fe_moment      Fe_moment     -1     0     0     -1.0
+Fe_moment      Fe_moment      0     1     0     -1.0  
+Fe_moment      Fe_moment      0    -1     0     -1.0
+Fe_moment      Fe_moment      0     0     1     -1.0
+Fe_moment      Fe_moment      0     0    -1     -1.0
+
+# Example for more complex system (all 6 nearest neighbors):
+# Te1_Mom        Te1_Mom        1     0     0     -1.0
+# Te1_Mom        Te1_Mom       -1     0     0     -1.0
+# Te1_Mom        Te1_Mom        0     1     0     -1.0
+# Te1_Mom        Te1_Mom        0    -1     0     -1.0
+# Te1_Mom        Te1_Mom        0     0     1     -1.0
+# Te1_Mom        Te1_Mom        0     0    -1     -1.0
+# Te1_Orb        Te1_Orb        1     0     0     -0.5
+# Te1_Orb        Te1_Orb       -1     0     0     -0.5
+# Te1_Orb        Te1_Orb        0     1     0     -0.5
+# Te1_Orb        Te1_Orb        0    -1     0     -0.5
+# Te1_Orb        Te1_Orb        0     0     1     -0.5
+# Te1_Orb        Te1_Orb        0     0    -1     -0.5

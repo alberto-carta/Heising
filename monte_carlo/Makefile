@@ -6,9 +6,14 @@ SRCDIR = src
 BUILDDIR = build
 
 SOURCES = $(SRCDIR)/simulation_engine.cpp $(SRCDIR)/spin_operations.cpp $(SRCDIR)/random.cpp
-OBJECTS = $(SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
+IO_SOURCES = $(SRCDIR)/io/configuration_parser.cpp
+OBJECTS = $(SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o) $(IO_SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
 
-all: $(BUILDDIR)/monte_carlo_sim $(BUILDDIR)/unit_tests $(BUILDDIR)/performance_test $(BUILDDIR)/heisenberg_analysis $(BUILDDIR)/ising_analysis
+# Create build subdirectories
+$(BUILDDIR)/io:
+	mkdir -p $(BUILDDIR)/io
+
+all: $(BUILDDIR)/monte_carlo_sim $(BUILDDIR)/unit_tests $(BUILDDIR)/performance_test $(BUILDDIR)/heisenberg_analysis $(BUILDDIR)/ising_analysis $(BUILDDIR)/generic_simulation
 
 $(BUILDDIR)/monte_carlo_sim: $(OBJECTS) $(BUILDDIR)/main.o | $(BUILDDIR)
 	$(CXX) $^ -o $@ $(LIBS)
@@ -25,7 +30,14 @@ $(BUILDDIR)/heisenberg_analysis: $(OBJECTS) $(BUILDDIR)/heisenberg_analysis.o | 
 $(BUILDDIR)/ising_analysis: $(OBJECTS) $(BUILDDIR)/ising_analysis.o | $(BUILDDIR)
 	$(CXX) $^ -o $@ $(LIBS)
 
-$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
+$(BUILDDIR)/generic_simulation: $(OBJECTS) $(BUILDDIR)/generic_simulation.o | $(BUILDDIR)
+	$(CXX) $^ -o $@ $(LIBS)
+
+$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR) $(BUILDDIR)/io
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Special rule for IO subdirectory
+$(BUILDDIR)/io/%.o: $(SRCDIR)/io/%.cpp | $(BUILDDIR)/io
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILDDIR)/main.o: examples/main.cpp | $(BUILDDIR)
@@ -41,6 +53,9 @@ $(BUILDDIR)/heisenberg_analysis.o: heisenberg_analysis.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILDDIR)/ising_analysis.o: ising_analysis.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILDDIR)/generic_simulation.o: generic_simulation.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILDDIR):
@@ -65,7 +80,17 @@ analyze: $(BUILDDIR)/heisenberg_analysis $(BUILDDIR)/ising_analysis
 	@echo "Running Ising ferromagnet analysis..."
 	./$(BUILDDIR)/ising_analysis
 
+# Run generic simulation with configuration files
+generic: $(BUILDDIR)/generic_simulation
+	./$(BUILDDIR)/generic_simulation ../examples/simulation.toml
+
+ising-config: $(BUILDDIR)/generic_simulation
+	./$(BUILDDIR)/generic_simulation ../examples/ising_ferromagnet.toml
+
+heisenberg-config: $(BUILDDIR)/generic_simulation  
+	./$(BUILDDIR)/generic_simulation ../examples/heisenberg_ferromagnet.toml
+
 clean:
 	rm -rf $(BUILDDIR)
 
-.PHONY: all test benchmark heisenberg ising analyze clean
+.PHONY: all test benchmark heisenberg ising analyze generic ising-config heisenberg-config clean

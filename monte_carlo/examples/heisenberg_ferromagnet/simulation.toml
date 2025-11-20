@@ -1,0 +1,27 @@
+# Heisenberg ferromagnet configuration
+# Simple 3D Heisenberg model simulation
+
+[simulation] 
+type = "temperature_scan"
+seed = -12345
+
+[lattice]
+size = 8
+
+[monte_carlo]
+warmup_steps = 8000
+measurement_steps = 80000
+sampling_frequency = 100
+
+[temperature]
+max = 6.0
+min = 0.5  
+step = 0.2
+
+[output]
+base_name = "heisenberg_ferromagnet"
+directory = "."
+
+[input_files]
+species = "species.dat"
+couplings = "couplings.dat"

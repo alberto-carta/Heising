@@ -1,0 +1,25 @@
+# Test Heisenberg simulation with fewer points
+[simulation]
+type = "temperature_scan"
+seed = -12345
+
+[lattice]
+size = 8
+
+[monte_carlo]
+warmup_steps = 5000
+measurement_steps = 20000
+sampling_frequency = 100
+
+[temperature]
+max = 3.0
+min = 1.0
+step = 1.0
+
+[output]
+base_name = "heisenberg_test"
+directory = "."
+
+[input_files]
+species = "species.dat"
+couplings = "couplings.dat"

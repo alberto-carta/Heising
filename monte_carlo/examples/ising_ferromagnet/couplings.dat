@@ -1,0 +1,7 @@
+# Ising ferromagnetic nearest-neighbor couplings (all 6 nearest neighbors)
+Fe_spin        Fe_spin        1     0     0     -1.0
+Fe_spin        Fe_spin       -1     0     0     -1.0
+Fe_spin        Fe_spin        0     1     0     -1.0  
+Fe_spin        Fe_spin        0    -1     0     -1.0
+Fe_spin        Fe_spin        0     0     1     -1.0
+Fe_spin        Fe_spin        0     0    -1     -1.0

@@ -1,0 +1,35 @@
+# Mixed couplings definition - both Ising and Heisenberg (should trigger error message)
+# This will demonstrate proper error handling for Kugel-Khomskii couplings
+
+# Heisenberg-Heisenberg couplings (all 6 nearest neighbors)
+Te1_Mom        Te1_Mom        1     0     0     -1.0
+Te1_Mom        Te1_Mom       -1     0     0     -1.0
+Te1_Mom        Te1_Mom        0     1     0     -1.0
+Te1_Mom        Te1_Mom        0    -1     0     -1.0
+Te1_Mom        Te1_Mom        0     0     1     -1.0
+Te1_Mom        Te1_Mom        0     0    -1     -1.0
+
+Te2_Mom        Te2_Mom        1     0     0     -1.0
+Te2_Mom        Te2_Mom       -1     0     0     -1.0
+Te2_Mom        Te2_Mom        0     1     0     -1.0
+Te2_Mom        Te2_Mom        0    -1     0     -1.0
+Te2_Mom        Te2_Mom        0     0     1     -1.0
+Te2_Mom        Te2_Mom        0     0    -1     -1.0
+
+# Ising-Ising couplings (all 6 nearest neighbors) 
+Te1_Orb        Te1_Orb        1     0     0     -0.5
+Te1_Orb        Te1_Orb       -1     0     0     -0.5
+Te1_Orb        Te1_Orb        0     1     0     -0.5
+Te1_Orb        Te1_Orb        0    -1     0     -0.5
+Te1_Orb        Te1_Orb        0     0     1     -0.5
+Te1_Orb        Te1_Orb        0     0    -1     -0.5
+
+Te2_Orb        Te2_Orb        1     0     0     -0.5
+Te2_Orb        Te2_Orb       -1     0     0     -0.5
+Te2_Orb        Te2_Orb        0     1     0     -0.5
+Te2_Orb        Te2_Orb        0    -1     0     -0.5
+Te2_Orb        Te2_Orb        0     0     1     -0.5
+Te2_Orb        Te2_Orb        0     0    -1     -0.5
+
+# Mixed Ising-Heisenberg coupling (this should trigger error)
+Te1_Mom        Te1_Orb        0     0     0     -0.1

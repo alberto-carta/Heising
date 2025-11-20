@@ -66,7 +66,9 @@ def plot_results(data, title, theoretical_tc=None):
     return fig
 
 #%% Load Heisenberg ferromagnet data
-heisenberg_file = "../monte_carlo/heisenberg_ferromagnet_transition.dat"
+heisenberg_file = "../monte_carlo/heisenberg_ferromagnet_proper_heisenberg_system.dat"
+if not os.path.exists(heisenberg_file):
+    heisenberg_file = "../monte_carlo/heisenberg_ferromagnet_transition.dat"
 heisenberg_data = load_data(heisenberg_file)
 
 #%% Plot Heisenberg ferromagnet results  
