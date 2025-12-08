@@ -77,7 +77,7 @@ void MonteCarloSimulation::initialize_lattice() {
     std::cout << "Lattice initialized in ferromagnetic ground state!" << std::endl;
 }
 
-// Fast local energy calculation - direct array access, no lookups
+// Local energy calculation 
 double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, int atom_id) {
     double energy = 0.0;
     const AtomInfo& atom_i = unit_cell.get_atom(atom_id);

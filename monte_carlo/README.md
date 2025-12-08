@@ -1,21 +1,12 @@
-# Multi-Atom Monte Carlo Simulation
+# Monte Carlo Simulation for Magnetic Systems
 
-A high-performance Monte Carlo simulation engine for magnetic systems with support for multi-atom unit cells, mixed spin types (Ising and Heisenberg), and flexible coupling configurations.
-
-## Features
-
-- **Multi-Atom Support**: Arbitrary number of atoms per magnetic unit cell
-- **Mixed Spin Types**: Ising (discrete ±1) and Heisenberg (continuous 3D) spins
-- **Flexible Couplings**: Intra-cell and inter-cell interactions with configurable range
-- **Dynamic Memory**: Coupling matrix size scales with actual interaction range
-- **High Performance**: Optimized for numerical efficiency with direct array access
-- **Temperature Sweeps**: Built-in phase transition studies
+A Monte Carlo simulation engine for magnetic systems supporting Ising and Heisenberg spins with multi-atom unit cells and flexible coupling configurations.
 
 ## Requirements
 
-### System Dependencies
 - **C++11 compatible compiler** (g++, clang++)
-- **Eigen3 linear algebra library** 
+- **Eigen3 library** (linear algebra)
+- **toml11 library** (header-only, included in project)
 - **Standard math library** (libm)
 
 ### Ubuntu/Debian Installation
@@ -27,26 +18,48 @@ sudo apt install build-essential libeigen3-dev
 ### Other Linux Distributions
 - **Fedora/RHEL**: `sudo dnf install gcc-c++ eigen3-devel`
 - **Arch**: `sudo pacman -S gcc eigen`
-- **macOS**: `brew install eigen`
+- **macOS**: `brew install gcc eigen` (or use clang)
 
 ## Quick Start
 
-### 1. Check Dependencies
+### 1. Build the Code
 ```bash
-make check-deps
+make
 ```
 
-### 2. Build and Test
+This compiles the simulation executable: `build/generic_simulation`
+
+### 2. Run a Simulation
+
+The simulation is configured using TOML files. Two examples are provided:
+
+#### Example 1: Ising Ferromagnet
 ```bash
-make test           # Build and run unit tests
-make benchmark      # Build and run performance tests
-make all            # Build everything
+./build/generic_simulation examples/ising_ferromagnet/simulation.toml
 ```
 
-### 3. Run Simulation
+This runs a 3D Ising model with ferromagnetic nearest-neighbor interactions. The simulation:
+- Uses an 8×8×8 lattice
+- Scans temperatures from 6.0 down to 0.5 (step: 0.2)
+- Performs 8,000 warmup steps and 80,000 measurement steps per temperature
+- Outputs data to `ising_ferromagnet_ising_system.dat`
+
+#### Example 2: Heisenberg Ferromagnet
 ```bash
-make run            # Interactive menu system
+./build/generic_simulation examples/heisenberg_ferromagnet/simulation.toml
 ```
+
+This runs a 3D Heisenberg model with ferromagnetic interactions. Configuration similar to Ising but with continuous 3D spins instead of discrete ±1 spins.
+
+### 3. Analyze Results
+
+Use the provided Python scripts to plot the results:
+```bash
+cd ../analysis_tools
+python analyze_ferromagnets.py
+```
+
+This generates plots showing magnetization, energy, specific heat, and susceptibility as functions of temperature.
 
 ## Project Structure
 

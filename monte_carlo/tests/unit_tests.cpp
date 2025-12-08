@@ -92,10 +92,10 @@ bool test_energy_calculation() {
     // Calculate total energy - should be negative (FM coupling, aligned spins)
     double total_energy = sim.get_energy();
     
-    // Each spin has 3 neighbors in 2x2x2 lattice with periodic boundary
-    // Total pairs = 8 * 3 / 2 = 12 pairs
-    // Energy = 12 * (-1.0) * (1 * 1) = -12.0
-    double expected_energy = -12.0;
+    // Each spin has 6 neighbors in 2x2x2 lattice with periodic boundary
+    // Total pairs = 8 * 6 / 2 = 24 pairs
+    // Energy = 24 * (-1.0) * (1 * 1) = -24.0
+    double expected_energy = -24.0;
     
     if (approx_equal(total_energy, expected_energy, 1e-6)) {
         std::cout << "✓ Energy calculation correct: " << total_energy << std::endl;
@@ -107,65 +107,82 @@ bool test_energy_calculation() {
     }
 }
 
-// Test 3: Metropolis algorithm correctness
+// Test 3: Metropolis algorithm correctness at T=0
 bool test_metropolis_algorithm() {
-    std::cout << "\n=== Test 3: Metropolis Algorithm Correctness ===" << std::endl;
+    std::cout << "\n=== Test 3: Metropolis Algorithm Correctness (T=0) ===" << std::endl;
     
-    UnitCell cell = create_unit_cell(SpinType::HEISENBERG);
+    UnitCell cell = create_unit_cell(SpinType::ISING);  // Use Ising for determinism
     CouplingMatrix couplings = create_nn_couplings(1, -1.0);  // FM coupling
     
-    MonteCarloSimulation sim(cell, couplings, 3, 0.1);  // Very low temperature
-    sim.initialize_lattice();
+    // Test at T=0: only energy-lowering moves should be accepted
+    MonteCarloSimulation sim(cell, couplings, 3, 0.0);
     
-    // Set initial configuration - all spins aligned (minimum energy state)
-    spin3d aligned_spin(0, 0, 1);
+    // Set a configuration with ONE spin misaligned (pointing down)
+    // All others point up - this creates a high-energy defect
     for (int x = 1; x <= 3; x++) {
         for (int y = 1; y <= 3; y++) {
             for (int z = 1; z <= 3; z++) {
-                sim.set_heisenberg_spin(x, y, z, 0, aligned_spin);
+                sim.set_ising_spin(x, y, z, 0, 1);  // All up
+            }
+        }
+    }
+    sim.set_ising_spin(2, 2, 2, 0, -1);  // Center spin down (defect)
+    
+    double initial_energy = sim.get_energy();
+    
+    // At T=0, attempting to flip the center spin should be accepted
+    // because it lowers energy (aligns with neighbors)
+    // Store the energy change
+    double local_energy_before = sim.calculate_local_energy(2, 2, 2, 0);
+    
+    // Calculate what energy would be if center spin flipped to align
+    // Current: center=-1, neighbors=+1, E_local = -J * (-1) * 6 * (+1) = +6J = -6.0
+    // After flip: center=+1, neighbors=+1, E_local = -J * (+1) * 6 * (+1) = -6J = +6.0
+    // Delta E = -12J = +12.0 (energy decreases by 12.0)
+    
+    // Now test: at T=0, energy-increasing move should be rejected
+    // Create ground state (all aligned)
+    for (int x = 1; x <= 3; x++) {
+        for (int y = 1; y <= 3; y++) {
+            for (int z = 1; z <= 3; z++) {
+                sim.set_ising_spin(x, y, z, 0, 1);  // All up
             }
         }
     }
     
-    double initial_energy = sim.get_energy();
+    double ground_energy = sim.get_energy();
     
-    // Calculate local energy for center spin
-    double local_energy_before = sim.calculate_local_energy(2, 2, 2, 0);
-    
-    // Test energy-lowering move (should always be accepted at any temperature)
-    // Since we're at minimum energy, any move will increase energy
-    // So let's test the opposite: start from random and see if we reach lower energy
-    
-    sim.initialize_lattice();  // Random initialization
-    double random_energy = sim.get_energy();
-    
-    // Run some Monte Carlo steps at low temperature
+    // Manually test Metropolis: try to flip a spin in ground state
+    // This should ALWAYS be rejected at T=0
     sim.reset_statistics();
-    for (int i = 0; i < 1000; i++) {
+    int accepted_count = 0;
+    for (int i = 0; i < 100; i++) {
+        double energy_before = sim.get_energy();
         sim.run_monte_carlo_step();
+        double energy_after = sim.get_energy();
+        
+        // At T=0 in ground state, no move should be accepted
+        if (energy_after != energy_before) {
+            accepted_count++;
+        }
     }
     
-    double final_energy = sim.get_energy();
     double acceptance_rate = sim.get_acceptance_rate();
     
-    // At low temperature, energy should decrease or stay low, acceptance should be reasonable
-    bool energy_improved = (final_energy <= random_energy);
-    bool acceptance_reasonable = (acceptance_rate > 0.01 && acceptance_rate < 0.99);
-    
-    if (energy_improved && acceptance_reasonable) {
-        std::cout << "✓ Metropolis algorithm working: E_initial=" << random_energy 
-                  << " → E_final=" << final_energy << ", accept=" << acceptance_rate << std::endl;
+    // At T=0 in ground state, acceptance should be exactly 0
+    if (accepted_count == 0 && approx_equal(acceptance_rate, 0.0, 1e-10)) {
+        std::cout << "✓ Metropolis at T=0: no energy-raising moves accepted" << std::endl;
         return true;
     } else {
-        std::cout << "✗ Metropolis algorithm issue: E_initial=" << random_energy 
-                  << " → E_final=" << final_energy << ", accept=" << acceptance_rate << std::endl;
+        std::cout << "✗ Metropolis at T=0 failed: " << accepted_count 
+                  << " moves accepted, rate=" << acceptance_rate << std::endl;
         return false;
     }
 }
 
-// Test 4: Mixed spin types (Ising + Heisenberg)
+// Test 4: Mixed spin types (Ising + Heisenberg) with deterministic configuration
 bool test_mixed_spin_types() {
-    std::cout << "\n=== Test 4: Mixed Spin Types ===" << std::endl;
+    std::cout << "\n=== Test 4: Mixed Spin Types (Deterministic) ===" << std::endl;
     
     // Create unit cell with both Ising and Heisenberg atoms
     UnitCell mixed_cell;
@@ -174,34 +191,68 @@ bool test_mixed_spin_types() {
     
     CouplingMatrix mixed_couplings;
     mixed_couplings.initialize(2, 1);
-    mixed_couplings.set_intra_coupling(0, 1, -1.0);  // H-I coupling
-    mixed_couplings.set_nn_couplings(0, 0, -0.5);    // H-H coupling
-    mixed_couplings.set_nn_couplings(1, 1, -0.5);    // I-I coupling
+
+    // set symmetrically on-site anti-alignment couplings
+    mixed_couplings.set_intra_coupling(0, 1, 10.0);  // H-I coupling
+    mixed_couplings.set_intra_coupling(1, 0, 10.0);  // H-I coupling
+    // set ising and heisenberg couplings
+    mixed_couplings.set_nn_couplings(0, 0, -1.0);    // H-H coupling
+    mixed_couplings.set_nn_couplings(1, 1, -1.0);    // I-I coupling
+
+
     
-    MonteCarloSimulation mixed_sim(mixed_cell, mixed_couplings, 3, 1.0);
-    mixed_sim.initialize_lattice();
+    MonteCarloSimulation mixed_sim(mixed_cell, mixed_couplings, 2, 1.0);
     
-    // Test that both spin types are properly handled
-    double initial_energy = mixed_sim.get_energy();
-    
-    // Run some steps
-    for (int i = 0; i < 100; i++) {
-        mixed_sim.run_monte_carlo_step();
+    // Set a known configuration: all Heisenberg spins up (0,0,1), all Ising up (+1)
+    spin3d heisenberg_up(0, 0, 1);
+    for (int x = 1; x <= 2; x++) {
+        for (int y = 1; y <= 2; y++) {
+            for (int z = 1; z <= 2; z++) {
+                mixed_sim.set_heisenberg_spin(x, y, z, 0, heisenberg_up);
+                mixed_sim.set_ising_spin(x, y, z, 1, 1);
+            }
+        }
     }
     
-    double final_energy = mixed_sim.get_energy();
-    double acceptance_rate = mixed_sim.get_acceptance_rate();
+    // Calculate energy analytically for this configuration
+    // Each site has 2 atoms. Total sites = 2x2x2 = 8
+    // E contribution from HH = -24
+    // E contribution from II = -24
+    // E contribution from local HI = 10 * 8
+    // 
+    // Total expected: -48 + 80 = +32
+    double expected_energy = +32.0;
+    double calculated_energy = mixed_sim.get_energy();
     
-    // System should be functional (finite energies, reasonable acceptance)
-    bool energies_finite = (std::isfinite(initial_energy) && std::isfinite(final_energy));
-    bool acceptance_ok = (acceptance_rate > 0.001 && acceptance_rate < 1.0);
+    // Test local energy calculation for a Heisenberg atom
+    double local_h = mixed_sim.calculate_local_energy(1, 1, 1, 0);
+    // Site (1,1,1) atom 0 has:
+    //   - 1 intra-cell coupling: +10
+    //   - 6 NN H-H couplings: 6 * 1 = -6
+    // Total: +4.0
+    double expected_local_h = 4.0;
     
-    if (energies_finite && acceptance_ok) {
-        std::cout << "✓ Mixed spin types work correctly" << std::endl;
+    // Test local energy for an Ising atom
+    double local_i = mixed_sim.calculate_local_energy(1, 1, 1, 1);
+    // Site (1,1,1) atom 1 has:
+    //   - 1 intra-cell coupling: +10
+    //   - 6 NN I-I couplings: -6
+    // Total: +4.0
+    double expected_local_i = 4.0;
+    
+    bool energy_correct = approx_equal(calculated_energy, expected_energy, 1e-6);
+    bool local_h_correct = approx_equal(local_h, expected_local_h, 1e-6);
+    bool local_i_correct = approx_equal(local_i, expected_local_i, 1e-6);
+    
+    if (energy_correct && local_h_correct && local_i_correct) {
+        std::cout << "✓ Mixed spin types: E_total=" << calculated_energy 
+                  << ", E_local_H=" << local_h << ", E_local_I=" << local_i << std::endl;
         return true;
     } else {
-        std::cout << "✗ Mixed spin types failed: energies=" << energies_finite 
-                  << ", acceptance=" << acceptance_rate << std::endl;
+        std::cout << "✗ Mixed spin types failed:" << std::endl;
+        std::cout << "  Total energy: " << calculated_energy << " (expected " << expected_energy << ")" << std::endl;
+        std::cout << "  Local H: " << local_h << " (expected " << expected_local_h << ")" << std::endl;
+        std::cout << "  Local I: " << local_i << " (expected " << expected_local_i << ")" << std::endl;
         return false;
     }
 }
