@@ -4,7 +4,7 @@
  */
 
 #include "../include/simulation_engine.h"
-#include "../include/multi_atom.h" 
+#include "../include/multi_spin.h" 
 #include "../include/random.h"
 #include <iostream>
 #include <iomanip>

@@ -1,8 +1,8 @@
 /*
- * Comprehensive Unit Tests for Monte Carlo Multi-Atom Implementation
+ * Comprehensive Unit Tests for Monte Carlo Multi-Spin Implementation
  * 
  * Tests core functionalities without trivial imports:
- * 1. Multi-atom lattice creation and spin access
+ * 1. Multi-spin lattice creation and spin access
  * 2. Coupling matrix setup and energy calculations
  * 3. Metropolis algorithm correctness 
  * 4. Energy conservation and physical properties
@@ -10,7 +10,7 @@
  */
 
 #include "../include/simulation_engine.h"
-#include "../include/multi_atom.h"
+#include "../include/multi_spin.h"
 #include "../include/random.h"
 #include <iostream>
 #include <cassert>
@@ -24,25 +24,36 @@ bool approx_equal(double a, double b, double tolerance = 1e-10) {
     return std::abs(a - b) < tolerance;
 }
 
-// Test 1: Multi-atom lattice creation and spin access
+// Test 1: Multi-spin lattice creation and spin access
 bool test_lattice_creation() {
-    std::cout << "\n=== Test 1: Multi-Atom Lattice Creation ===" << std::endl;
+    std::cout << "\n=== Test 1: Multi-Spin Lattice Creation ===" << std::endl;
     
-    // Create 2-atom unit cell (Heisenberg + Ising)
+    // Create 2-spin unit cell (Heisenberg + Ising)
     UnitCell cell;
-    cell.add_atom("H1", SpinType::HEISENBERG, 1.0);
-    cell.add_atom("I1", SpinType::ISING, 1.0);
+    cell.add_spin("H1", SpinType::HEISENBERG, 1.0);
+    cell.add_spin("I1", SpinType::ISING, 1.0);
     
     // Simple coupling matrix
     CouplingMatrix couplings;
-    couplings.initialize(2, 1);  // 2 atoms, max_offset = 1
+    couplings.initialize(2, 1);  // 2 spins, max_offset = 1
     couplings.set_intra_coupling(0, 1, -1.0);  // Intra-cell FM coupling
     couplings.set_nn_couplings(0, 0, -0.5);   // H-H nearest neighbors
     couplings.set_nn_couplings(1, 1, -0.5);   // I-I nearest neighbors
+
+    // Add Kugel-Khomskii coupling matrix
+    KK_Matrix kk_couplings;
+    kk_couplings.initialize(cell, 1);  // unit cell, max_offset = 1
+    kk_couplings.set_coupling(0, 1, 0, 0, 0, 0.1);  // Small KK coupling between H and I
     
-    // Create simulation
-    MonteCarloSimulation sim(cell, couplings, 3, 1.0);
+    // Create simulation with KK coupling
+    MonteCarloSimulation sim(cell, couplings, 3, 1.0, kk_couplings);
     sim.initialize_lattice();
+    
+    // Verify KK coupling is present
+    if (!sim.has_kugel_khomskii()) {
+        std::cout << "✗ KK coupling not detected" << std::endl;
+        return false;
+    }
     
     // Test spin access - set and get known values
     spin3d test_heisenberg(0.5, 0.5, std::sqrt(0.5));
@@ -60,7 +71,7 @@ bool test_lattice_creation() {
     bool i_correct = (retrieved_i == -1);
     
     if (h_correct && i_correct) {
-        std::cout << "✓ Spin access works correctly" << std::endl;
+        std::cout << "✓ Spin access works correctly with KK coupling" << std::endl;
         return true;
     } else {
         std::cout << "✗ Spin access failed" << std::endl;
@@ -72,7 +83,7 @@ bool test_lattice_creation() {
 bool test_energy_calculation() {
     std::cout << "\n=== Test 2: Energy Calculation Correctness ===" << std::endl;
     
-    // Create simple 1-atom Heisenberg system for analytical verification
+    // Create simple 1-spin Heisenberg system for analytical verification
     UnitCell cell = create_unit_cell(SpinType::HEISENBERG);
     CouplingMatrix couplings = create_nn_couplings(1, -1.0);  // FM coupling
     
@@ -184,10 +195,10 @@ bool test_metropolis_algorithm() {
 bool test_mixed_spin_types() {
     std::cout << "\n=== Test 4: Mixed Spin Types (Deterministic) ===" << std::endl;
     
-    // Create unit cell with both Ising and Heisenberg atoms
+    // Create unit cell with both Ising and Heisenberg spins
     UnitCell mixed_cell;
-    mixed_cell.add_atom("Heisenberg", SpinType::HEISENBERG, 1.0);
-    mixed_cell.add_atom("Ising", SpinType::ISING, 1.0);
+    mixed_cell.add_spin("Heisenberg", SpinType::HEISENBERG, 1.0);
+    mixed_cell.add_spin("Ising", SpinType::ISING, 1.0);
     
     CouplingMatrix mixed_couplings;
     mixed_couplings.initialize(2, 1);
@@ -215,7 +226,7 @@ bool test_mixed_spin_types() {
     }
     
     // Calculate energy analytically for this configuration
-    // Each site has 2 atoms. Total sites = 2x2x2 = 8
+    // Each site has 2 spins. Total sites = 2x2x2 = 8
     // E contribution from HH = -24
     // E contribution from II = -24
     // E contribution from local HI = 10 * 8
@@ -224,17 +235,17 @@ bool test_mixed_spin_types() {
     double expected_energy = +32.0;
     double calculated_energy = mixed_sim.get_energy();
     
-    // Test local energy calculation for a Heisenberg atom
+    // Test local energy calculation for a Heisenberg spin
     double local_h = mixed_sim.calculate_local_energy(1, 1, 1, 0);
-    // Site (1,1,1) atom 0 has:
+    // Site (1,1,1) spin 0 has:
     //   - 1 intra-cell coupling: +10
     //   - 6 NN H-H couplings: 6 * 1 = -6
     // Total: +4.0
     double expected_local_h = 4.0;
     
-    // Test local energy for an Ising atom
+    // Test local energy for an Ising spin
     double local_i = mixed_sim.calculate_local_energy(1, 1, 1, 1);
-    // Site (1,1,1) atom 1 has:
+    // Site (1,1,1) spin 1 has:
     //   - 1 intra-cell coupling: +10
     //   - 6 NN I-I couplings: -6
     // Total: +4.0

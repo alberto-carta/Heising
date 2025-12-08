@@ -9,7 +9,7 @@
  */
 
 #include "../include/simulation_engine.h"
-#include "../include/multi_atom.h"
+#include "../include/multi_spin.h"
 #include "../include/random.h"
 #include <iostream>
 #include <iomanip>
@@ -175,11 +175,11 @@ void benchmark_mc_steps() {
                   << std::setw(14) << std::setprecision(2) << time_per_step << std::endl;
     }
     
-    // Test multi-atom system
+    // Test multi-spin system
     {
         UnitCell multi_cell;
-        multi_cell.add_atom("H1", SpinType::HEISENBERG, 1.0);
-        multi_cell.add_atom("I1", SpinType::ISING, 1.0);
+        multi_cell.add_spin("H1", SpinType::HEISENBERG, 1.0);
+        multi_cell.add_spin("I1", SpinType::ISING, 1.0);
         
         CouplingMatrix multi_couplings;
         multi_couplings.initialize(2, 1);
@@ -217,15 +217,15 @@ void benchmark_memory_usage() {
     std::vector<std::pair<int, int>> configs = {{1, 1}, {1, 2}, {1, 3}, {2, 1}, {2, 2}, {4, 2}};
     
     for (auto& config : configs) {
-        int num_atoms = config.first;
+        int num_spins = config.first;
         int max_offset = config.second;
         
         int array_size = 2 * max_offset + 1;
-        size_t total_elements = (size_t)num_atoms * num_atoms * array_size * array_size * array_size;
+        size_t total_elements = (size_t)num_spins * num_spins * array_size * array_size * array_size;
         size_t memory_bytes = total_elements * sizeof(double);
         double memory_kb = memory_bytes / 1024.0;
         
-        std::cout << std::setw(5) << num_atoms << " | "
+        std::cout << std::setw(5) << num_spins << " | "
                   << std::setw(10) << max_offset << " | "
                   << std::setw(10) << array_size << "³ | "
                   << std::setw(11) << std::fixed << std::setprecision(1) << memory_kb << std::endl;

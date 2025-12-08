@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Iinclude -I/usr/include/eigen3
+CXXFLAGS = -Wall -Wextra -O2 -std=c++17 -Iinclude -I/usr/include/eigen3
 LIBS = -lm
 
 SRCDIR = src

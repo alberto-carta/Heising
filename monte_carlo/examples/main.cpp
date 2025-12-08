@@ -9,7 +9,7 @@
  */
 
 #include "../include/simulation_engine.h"
-#include "../include/multi_atom.h"
+#include "../include/multi_spin.h"
 #include "../include/random.h"
 #include <iostream>
 #include <iomanip>
@@ -158,18 +158,18 @@ void run_heisenberg_sweep(const SimParams& params) {
 
 // Example 3: Multi-atom system demonstration
 void run_multi_atom_demo(const SimParams& params) {
-    std::cout << "=== Multi-Atom System Demonstration ===" << std::endl;
+    std::cout << "=== Multi-Spin System Demonstration ===" << std::endl;
     
-    // Create 4-atom unit cell with mixed spin types
+    // Create 4-spin unit cell with mixed spin types
     UnitCell multi_cell;
-    multi_cell.add_atom("H1", SpinType::HEISENBERG, 1.0);
-    multi_cell.add_atom("H2", SpinType::HEISENBERG, 1.0);
-    multi_cell.add_atom("I1", SpinType::ISING, 1.0);
-    multi_cell.add_atom("I2", SpinType::ISING, 1.0);
+    multi_cell.add_spin("H1", SpinType::HEISENBERG, 1.0);
+    multi_cell.add_spin("H2", SpinType::HEISENBERG, 1.0);
+    multi_cell.add_spin("I1", SpinType::ISING, 1.0);
+    multi_cell.add_spin("I2", SpinType::ISING, 1.0);
     
     // Create coupling matrix with extended range
     CouplingMatrix multi_couplings;
-    multi_couplings.initialize(4, 2);  // 4 atoms, max_offset = 2
+    multi_couplings.initialize(4, 2);  // 4 spins, max_offset = 2
     
     // Intra-cell couplings (within same unit cell)
     multi_couplings.set_intra_coupling(0, 1, -1.0);  // H1-H2 FM

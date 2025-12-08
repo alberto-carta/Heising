@@ -1,40 +1,40 @@
 /*
- * Fast Multi-Atom Data Structures
+ * Fast Multi-Spin Data Structures
  * 
- * Simplified, performance-focused implementation for multi-atom Monte Carlo
+ * Simplified, performance-focused implementation for multi-spin Monte Carlo
  * Uses simple arrays and direct indexing instead of complex containers
  */
 
-#ifndef MULTI_ATOM_H
-#define MULTI_ATOM_H
+#ifndef MULTI_SPIN_H
+#define MULTI_SPIN_H
 
 #include "spin_types.h"
 #include <vector>
 #include <string>
 #include <iostream>
 
-// Simple atom information
-struct AtomInfo {
+// Simple spin information
+struct SpinInfo {
     SpinType spin_type;
     double spin_magnitude;
     std::string label;
-    int site_id;  // Which physical site this atom belongs to
+    int site_id;  // Which physical site this spin belongs to
     
-    AtomInfo() : spin_type(SpinType::ISING), spin_magnitude(1.0), label(""), site_id(0) {}
-    AtomInfo(const std::string& lbl, SpinType type, double mag, int site = 0) 
+    SpinInfo() : spin_type(SpinType::ISING), spin_magnitude(1.0), label(""), site_id(0) {}
+    SpinInfo(const std::string& lbl, SpinType type, double mag, int site = 0) 
         : spin_type(type), spin_magnitude(mag), label(lbl), site_id(site) {}
 };
 
-// Unit cell - simple container for atoms
+// Unit cell - simple container for spins
 class UnitCell {
 private:
-    std::vector<AtomInfo> atoms;
+    std::vector<SpinInfo> spins;
     int num_sites;  // Number of distinct physical sites
     
 public:
     UnitCell() : num_sites(0) {}
     
-    void add_atom(const std::string& label, SpinType type, double magnitude, int site_id = -1) {
+    void add_spin(const std::string& label, SpinType type, double magnitude, int site_id = -1) {
         // If site_id not specified, assign a new site
         if (site_id == -1) {
             site_id = num_sites++;
@@ -44,18 +44,18 @@ public:
                 num_sites = site_id + 1;
             }
         }
-        atoms.emplace_back(label, type, magnitude, site_id);
+        spins.emplace_back(label, type, magnitude, site_id);
     }
     
-    int num_atoms() const { return static_cast<int>(atoms.size()); }
+    int num_spins() const { return static_cast<int>(spins.size()); }
     int get_num_sites() const { return num_sites; }
-    const AtomInfo& get_atom(int id) const { return atoms[id]; }
+    const SpinInfo& get_spin(int id) const { return spins[id]; }
     
-    // Get all atoms belonging to a given site
-    std::vector<int> get_atoms_at_site(int site_id) const {
+    // Get all spins belonging to a given site
+    std::vector<int> get_spins_at_site(int site_id) const {
         std::vector<int> result;
-        for (int i = 0; i < num_atoms(); i++) {
-            if (atoms[i].site_id == site_id) {
+        for (int i = 0; i < num_spins(); i++) {
+            if (spins[i].site_id == site_id) {
                 result.push_back(i);
             }
         }
@@ -64,30 +64,30 @@ public:
     
     // Check if a site has mixed spin types
     bool site_has_mixed_types(int site_id) const {
-        std::vector<int> site_atoms = get_atoms_at_site(site_id);
-        if (site_atoms.size() <= 1) return false;
+        std::vector<int> site_spins = get_spins_at_site(site_id);
+        if (site_spins.size() <= 1) return false;
         
-        SpinType first_type = atoms[site_atoms[0]].spin_type;
-        for (size_t i = 1; i < site_atoms.size(); i++) {
-            if (atoms[site_atoms[i]].spin_type != first_type) return true;
+        SpinType first_type = spins[site_spins[0]].spin_type;
+        for (size_t i = 1; i < site_spins.size(); i++) {
+            if (spins[site_spins[i]].spin_type != first_type) return true;
         }
         return false;
     }
     
     bool has_mixed_spin_types() const {
-        if (atoms.empty()) return false;
-        SpinType first_type = atoms[0].spin_type;
-        for (size_t i = 1; i < atoms.size(); i++) {
-            if (atoms[i].spin_type != first_type) return true;
+        if (spins.empty()) return false;
+        SpinType first_type = spins[0].spin_type;
+        for (size_t i = 1; i < spins.size(); i++) {
+            if (spins[i].spin_type != first_type) return true;
         }
         return false;
     }
 };
 
-// Coupling matrix - dynamic 5D array: [atom_i][atom_j][dx+max_offset][dy+max_offset][dz+max_offset]
+// Coupling matrix - dynamic 5D array: [spin_i][spin_j][dx+max_offset][dy+max_offset][dz+max_offset]
 class CouplingMatrix {
 private:
-    int num_atoms;
+    int num_spins;
     int max_offset;        // Dynamically determined maximum offset
     int offset_size;       // 2 * max_offset + 1
     std::vector<std::vector<std::vector<std::vector<std::vector<double>>>>> J;  // J[i][j][dx][dy][dz]
@@ -98,25 +98,25 @@ private:
     }
     
 public:
-    CouplingMatrix() : num_atoms(0), max_offset(0), offset_size(1) {}
+    CouplingMatrix() : num_spins(0), max_offset(0), offset_size(1) {}
     
     // Initialize with specified maximum offset range
-    void initialize(int n_atoms, int max_coupling_offset = 1) {
-        num_atoms = n_atoms;
+    void initialize(int n_spins, int max_coupling_offset = 1) {
+        num_spins = n_spins;
         max_offset = max_coupling_offset;
         offset_size = 2 * max_offset + 1;
         
-        std::cout << "Initializing coupling matrix: " << n_atoms << " atoms, max_offset = " 
+        std::cout << "Initializing coupling matrix: " << n_spins << " spins, max_offset = " 
                   << max_offset << " (array size: " << offset_size << "³)" << std::endl;
         
-        // Resize to [n_atoms][n_atoms][offset_size][offset_size][offset_size] and initialize to 0.0
-        J.assign(n_atoms,                                                                    // [atom_i]
-            std::vector<std::vector<std::vector<std::vector<double>>>>(n_atoms,             // [atom_j]
+        // Resize to [n_spins][n_spins][offset_size][offset_size][offset_size] and initialize to 0.0
+        J.assign(n_spins,                                                                    // [spin_i]
+            std::vector<std::vector<std::vector<std::vector<double>>>>(n_spins,             // [spin_j]
                 std::vector<std::vector<std::vector<double>>>(offset_size,                  // [dx]
                     std::vector<std::vector<double>>(offset_size,                           // [dy]
                         std::vector<double>(offset_size, 0.0)))));                          // [dz]
         
-        size_t total_elements = (size_t)n_atoms * n_atoms * offset_size * offset_size * offset_size;
+        size_t total_elements = (size_t)n_spins * n_spins * offset_size * offset_size * offset_size;
         size_t memory_mb = total_elements * sizeof(double) / (1024 * 1024);
         std::cout << "Coupling matrix memory: " << memory_mb << " MB (" << total_elements << " elements)" << std::endl;
     }
@@ -165,19 +165,19 @@ public:
         set_coupling(atom_i, atom_j, 0, 0, 0, coupling_value);
     }
     
-    int get_num_atoms() const { return num_atoms; }
+    int get_num_spins() const { return num_spins; }
     int get_max_offset() const { return max_offset; }
     
     // Print coupling matrix for debugging
     void print_summary() const {
         std::cout << "Coupling matrix summary:" << std::endl;
-        std::cout << "  Atoms: " << num_atoms << std::endl;
+        std::cout << "  Spins: " << num_spins << std::endl;
         std::cout << "  Max offset range: ±" << max_offset << std::endl;
         
         // Count non-zero couplings
         int non_zero = 0;
-        for (int i = 0; i < num_atoms; i++) {
-            for (int j = 0; j < num_atoms; j++) {
+        for (int i = 0; i < num_spins; i++) {
+            for (int j = 0; j < num_spins; j++) {
                 for (int dx = -max_offset; dx <= max_offset; dx++) {
                     for (int dy = -max_offset; dy <= max_offset; dy++) {
                         for (int dz = -max_offset; dz <= max_offset; dz++) {
@@ -196,16 +196,16 @@ public:
 // Helper functions for creating simple systems
 inline UnitCell create_unit_cell(SpinType model_type) {
     UnitCell cell;
-    cell.add_atom("Atom1", model_type, 1.0);
+    cell.add_spin("Spin1", model_type, 1.0);
     return cell;
 }
 
-inline CouplingMatrix create_nn_couplings(int num_atoms, double J, int max_range = 1) {
+inline CouplingMatrix create_nn_couplings(int num_spins, double J, int max_range = 1) {
     CouplingMatrix couplings;
-    couplings.initialize(num_atoms, max_range);  // Only allocate what we need
+    couplings.initialize(num_spins, max_range);  // Only allocate what we need
     
-    // For single atom, add nearest neighbor couplings
-    if (num_atoms == 1) {
+    // For single spin, add nearest neighbor couplings
+    if (num_spins == 1) {
         couplings.set_nn_couplings(0, 0, J);
     }
     
@@ -213,7 +213,7 @@ inline CouplingMatrix create_nn_couplings(int num_atoms, double J, int max_range
 }
 
 // 5D matrix containing Kugel-Khomskii couplings using SITE indices
-// K[site_i][site_j][dx][dy][dz] represents coupling between sites, not individual atoms
+// K[site_i][site_j][dx][dy][dz] represents coupling between sites, not individual spins
 class KK_Matrix {
 private:
     int num_sites;         // Number of physical sites in unit cell
@@ -306,4 +306,4 @@ public:
 };
 
 
-#endif // MULTI_ATOM_H
+#endif // MULTI_SPIN_H

@@ -6,7 +6,7 @@
  */
 
 #include "../include/simulation_engine.h"
-#include "../include/multi_atom.h" 
+#include "../include/multi_spin.h" 
 #include "../include/random.h"
 #include "../include/io/configuration_parser.h"
 #include <iostream>
@@ -25,8 +25,8 @@ UnitCell create_unit_cell_from_config(const std::vector<IO::MagneticSpecies>& sp
     UnitCell cell;
     
     for (const auto& spec : species) {
-        // Use the UnitCell::add_atom method with proper signature
-        cell.add_atom(spec.name, spec.spin_type, 1.0);  // Default magnitude = 1.0
+        // Use the UnitCell::add_spin method with proper signature
+        cell.add_spin(spec.name, spec.spin_type, 1.0);  // Default magnitude = 1.0
         // Position information is stored but not currently used in simulation
         // Could be extended for more complex lattice structures
     }
@@ -40,7 +40,7 @@ UnitCell create_unit_cell_from_config(const std::vector<IO::MagneticSpecies>& sp
 CouplingMatrix create_couplings_from_config(const std::vector<IO::ExchangeCoupling>& couplings,
                                             const std::vector<IO::MagneticSpecies>& species,
                                             int lattice_size) {
-    int num_atoms = species.size();
+    int num_spins = species.size();
     
     // Determine maximum coupling offset from input
     int max_offset = 1;  // Default to nearest neighbor
@@ -52,9 +52,9 @@ CouplingMatrix create_couplings_from_config(const std::vector<IO::ExchangeCoupli
     }
     
     CouplingMatrix coupling_matrix;
-    coupling_matrix.initialize(num_atoms, max_offset);
+    coupling_matrix.initialize(num_spins, max_offset);
     
-    // Create map of species names to atom indices
+    // Create map of species names to spin indices
     std::map<std::string, int> species_to_index;
     for (size_t i = 0; i < species.size(); i++) {
         species_to_index[species[i].name] = static_cast<int>(i);

@@ -18,28 +18,33 @@ extern long int seed;
 // Constructor
 MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc, 
                                           const CouplingMatrix& couplings,
-                                          int size, double T)
+                                          int size, double T,
+                                          std::optional<KK_Matrix> kk)
     : lattice_size(size), temperature(T), max_rotation_angle(1.5),
-      unit_cell(uc), coupling_matrix(couplings),
+      unit_cell(uc), coupling_matrix(couplings), kk_matrix(kk),
       total_attempts(0), total_acceptances(0) {
     
     std::cout << "Creating Monte Carlo simulation:" << std::endl;
-    std::cout << "Unit cell: " << unit_cell.num_atoms() << " atoms" << std::endl;
+    std::cout << "Unit cell: " << unit_cell.num_spins() << " spins" << std::endl;
     std::cout << "Lattice size: " << size << "x" << size << "x" << size << std::endl;
     std::cout << "Temperature: " << T << std::endl;
     
-    // Print atom information
-    for (int i = 0; i < unit_cell.num_atoms(); i++) {
-        const AtomInfo& atom = unit_cell.get_atom(i);
-        std::cout << "  Atom " << i << ": " << atom.label 
-                  << " (" << (atom.spin_type == SpinType::ISING ? "Ising" : "Heisenberg") 
-                  << ", S=" << atom.spin_magnitude << ")" << std::endl;
+    // Print spin information
+    for (int i = 0; i < unit_cell.num_spins(); i++) {
+        const SpinInfo& spin = unit_cell.get_spin(i);
+        std::cout << "  Spin " << i << ": " << spin.label 
+                  << " (" << (spin.spin_type == SpinType::ISING ? "Ising" : "Heisenberg") 
+                  << ", S=" << spin.spin_magnitude << ")" << std::endl;
     }
     
     coupling_matrix.print_summary();
     
+    if (kk_matrix.has_value()) {
+        std::cout << "Kugel-Khomskii coupling is enabled." << std::endl;
+    }
+    
     // Allocate memory
-    int total_spins = size * size * size * unit_cell.num_atoms();
+    int total_spins = size * size * size * unit_cell.num_spins();
     std::cout << "Allocating memory for " << total_spins << " spins..." << std::endl;
     
     ising_spins.resize(total_spins);
@@ -57,11 +62,11 @@ void MonteCarloSimulation::initialize_lattice() {
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
             for (int z = 1; z <= lattice_size; z++) {
-                for (int atom_id = 0; atom_id < unit_cell.num_atoms(); atom_id++) {
-                    const AtomInfo& atom = unit_cell.get_atom(atom_id);
-                    int idx = flatten_index(x, y, z, atom_id);
+                for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
+                    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                    int idx = flatten_index(x, y, z, spin_id);
                     
-                    if (atom.spin_type == SpinType::ISING) {
+                    if (spin.spin_type == SpinType::ISING) {
                         ising_spins[idx] = 1.0;  // All spins up for ferromagnet
                     } else {
                         // All spins pointing in +z direction for ferromagnet
@@ -78,10 +83,10 @@ void MonteCarloSimulation::initialize_lattice() {
 }
 
 // Local energy calculation 
-double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, int atom_id) {
+double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, int spin_id) {
     double energy = 0.0;
-    const AtomInfo& atom_i = unit_cell.get_atom(atom_id);
-    int idx_i = flatten_index(x, y, z, atom_id);
+    const SpinInfo& spin_i = unit_cell.get_spin(spin_id);
+    int idx_i = flatten_index(x, y, z, spin_id);
     
     // Loop over all possible neighbor offsets efficiently
     int max_range = coupling_matrix.get_max_offset();
@@ -89,8 +94,8 @@ double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, in
         for (int dy = -max_range; dy <= max_range; dy++) {
             for (int dz = -max_range; dz <= max_range; dz++) {
                 // Skip if no coupling
-                for (int atom_j = 0; atom_j < unit_cell.num_atoms(); atom_j++) {
-                    double J_ij = coupling_matrix.get_coupling(atom_id, atom_j, dx, dy, dz);
+                for (int spin_j = 0; spin_j < unit_cell.num_spins(); spin_j++) {
+                    double J_ij = coupling_matrix.get_coupling(spin_id, spin_j, dx, dy, dz);
                     if (J_ij == 0.0) continue;
                     
                     // Calculate neighbor position with periodic boundaries
@@ -106,20 +111,20 @@ double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, in
                     if (nz < 1) nz += lattice_size;
                     if (nz > lattice_size) nz -= lattice_size;
                     
-                    int idx_j = flatten_index(nx, ny, nz, atom_j);
-                    const AtomInfo& atom_j_info = unit_cell.get_atom(atom_j);
+                    int idx_j = flatten_index(nx, ny, nz, spin_j);
+                    const SpinInfo& spin_j_info = unit_cell.get_spin(spin_j);
                     
                     // Fast dot product calculation
                     double dot_product = 0.0;
-                    if (atom_i.spin_type == SpinType::ISING && atom_j_info.spin_type == SpinType::ISING) {
+                    if (spin_i.spin_type == SpinType::ISING && spin_j_info.spin_type == SpinType::ISING) {
                         dot_product = ising_spins[idx_i] * ising_spins[idx_j];
-                    } else if (atom_i.spin_type == SpinType::HEISENBERG && atom_j_info.spin_type == SpinType::HEISENBERG) {
+                    } else if (spin_i.spin_type == SpinType::HEISENBERG && spin_j_info.spin_type == SpinType::HEISENBERG) {
                         dot_product = heisenberg_x[idx_i] * heisenberg_x[idx_j] +
                                      heisenberg_y[idx_i] * heisenberg_y[idx_j] +
                                      heisenberg_z[idx_i] * heisenberg_z[idx_j];
                     } else {
                         // Mixed Ising-Heisenberg interaction
-                        if (atom_i.spin_type == SpinType::ISING) {
+                        if (spin_i.spin_type == SpinType::ISING) {
                             dot_product = ising_spins[idx_i] * heisenberg_z[idx_j];  // Use z-component
                         } else {
                             dot_product = heisenberg_z[idx_i] * ising_spins[idx_j];  // Use z-component
@@ -141,10 +146,10 @@ void MonteCarloSimulation::run_monte_carlo_step() {
     int x = static_cast<int>(ran1(&seed) * lattice_size) + 1;
     int y = static_cast<int>(ran1(&seed) * lattice_size) + 1;
     int z = static_cast<int>(ran1(&seed) * lattice_size) + 1;
-    int atom_id = static_cast<int>(ran1(&seed) * unit_cell.num_atoms());
+    int spin_id = static_cast<int>(ran1(&seed) * unit_cell.num_spins());
     
-    const AtomInfo& atom = unit_cell.get_atom(atom_id);
-    int idx = flatten_index(x, y, z, atom_id);
+    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+    int idx = flatten_index(x, y, z, spin_id);
     
     // Store old values
     double old_ising = ising_spins[idx];
@@ -153,10 +158,10 @@ void MonteCarloSimulation::run_monte_carlo_step() {
     double old_hz = heisenberg_z[idx];
     
     // Calculate energy before move
-    double energy_before = calculate_local_energy_fast(x, y, z, atom_id);
+    double energy_before = calculate_local_energy_fast(x, y, z, spin_id);
     
     // Propose move
-    if (atom.spin_type == SpinType::ISING) {
+    if (spin.spin_type == SpinType::ISING) {
         ising_spins[idx] = -ising_spins[idx];  // Flip
     } else {
         // Rotate Heisenberg spin
@@ -168,7 +173,7 @@ void MonteCarloSimulation::run_monte_carlo_step() {
     }
     
     // Calculate energy after move
-    double energy_after = calculate_local_energy_fast(x, y, z, atom_id);
+    double energy_after = calculate_local_energy_fast(x, y, z, spin_id);
     double energy_change = energy_after - energy_before;
     
     total_attempts++;
@@ -210,8 +215,8 @@ double MonteCarloSimulation::get_energy() {
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
             for (int z = 1; z <= lattice_size; z++) {
-                for (int atom_id = 0; atom_id < unit_cell.num_atoms(); atom_id++) {
-                    total_energy += calculate_local_energy_fast(x, y, z, atom_id);
+                for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
+                    total_energy += calculate_local_energy_fast(x, y, z, spin_id);
                 }
             }
         }
@@ -227,15 +232,15 @@ double MonteCarloSimulation::get_magnetization() {
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
             for (int z = 1; z <= lattice_size; z++) {
-                for (int atom_id = 0; atom_id < unit_cell.num_atoms(); atom_id++) {
-                    const AtomInfo& atom = unit_cell.get_atom(atom_id);
-                    int idx = flatten_index(x, y, z, atom_id);
+                for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
+                    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                    int idx = flatten_index(x, y, z, spin_id);
                     
-                    if (atom.spin_type == SpinType::ISING) {
-                        total_mag += ising_spins[idx] * atom.spin_magnitude;
+                    if (spin.spin_type == SpinType::ISING) {
+                        total_mag += ising_spins[idx] * spin.spin_magnitude;
                     } else {
                         // For Heisenberg, use z-component as convention (like Ising)
-                        total_mag += heisenberg_z[idx] * atom.spin_magnitude;
+                        total_mag += heisenberg_z[idx] * spin.spin_magnitude;
                     }
                 }
             }
@@ -252,18 +257,18 @@ double MonteCarloSimulation::get_absolute_magnetization() {
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
             for (int z = 1; z <= lattice_size; z++) {
-                for (int atom_id = 0; atom_id < unit_cell.num_atoms(); atom_id++) {
-                    const AtomInfo& atom = unit_cell.get_atom(atom_id);
-                    int idx = flatten_index(x, y, z, atom_id);
+                for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
+                    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                    int idx = flatten_index(x, y, z, spin_id);
                     
-                    if (atom.spin_type == SpinType::ISING) {
-                        total_mag += std::abs(ising_spins[idx]) * atom.spin_magnitude;
+                    if (spin.spin_type == SpinType::ISING) {
+                        total_mag += std::abs(ising_spins[idx]) * spin.spin_magnitude;
                     } else {
                         // For Heisenberg, use magnitude of the 3D vector
                         double spin_mag = sqrt(heisenberg_x[idx]*heisenberg_x[idx] + 
                                              heisenberg_y[idx]*heisenberg_y[idx] + 
                                              heisenberg_z[idx]*heisenberg_z[idx]);
-                        total_mag += spin_mag * atom.spin_magnitude;
+                        total_mag += spin_mag * spin.spin_magnitude;
                     }
                 }
             }
@@ -286,23 +291,23 @@ void MonteCarloSimulation::reset_statistics() {
 }
 
 // Spin access methods (for testing)
-int MonteCarloSimulation::get_ising_spin(int x, int y, int z, int atom_id) const {
-    int idx = flatten_index(x, y, z, atom_id);
+int MonteCarloSimulation::get_ising_spin(int x, int y, int z, int spin_id) const {
+    int idx = flatten_index(x, y, z, spin_id);
     return static_cast<int>(ising_spins[idx]);
 }
 
-void MonteCarloSimulation::set_ising_spin(int x, int y, int z, int atom_id, int spin) {
-    int idx = flatten_index(x, y, z, atom_id);
+void MonteCarloSimulation::set_ising_spin(int x, int y, int z, int spin_id, int spin) {
+    int idx = flatten_index(x, y, z, spin_id);
     ising_spins[idx] = static_cast<double>(spin);
 }
 
-spin3d MonteCarloSimulation::get_heisenberg_spin(int x, int y, int z, int atom_id) const {
-    int idx = flatten_index(x, y, z, atom_id);
+spin3d MonteCarloSimulation::get_heisenberg_spin(int x, int y, int z, int spin_id) const {
+    int idx = flatten_index(x, y, z, spin_id);
     return spin3d(heisenberg_x[idx], heisenberg_y[idx], heisenberg_z[idx]);
 }
 
-void MonteCarloSimulation::set_heisenberg_spin(int x, int y, int z, int atom_id, const spin3d& spin) {
-    int idx = flatten_index(x, y, z, atom_id);
+void MonteCarloSimulation::set_heisenberg_spin(int x, int y, int z, int spin_id, const spin3d& spin) {
+    int idx = flatten_index(x, y, z, spin_id);
     heisenberg_x[idx] = spin.x;
     heisenberg_y[idx] = spin.y;
     heisenberg_z[idx] = spin.z;

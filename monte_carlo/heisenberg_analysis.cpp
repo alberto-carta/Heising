@@ -6,7 +6,7 @@
  */
 
 #include "../include/simulation_engine.h"
-#include "../include/multi_atom.h" 
+#include "../include/multi_spin.h" 
 #include "../include/random.h"
 #include <iostream>
 #include <iomanip>
@@ -83,8 +83,8 @@ int main() {
             for (int x = 1; x <= lattice_size; x++) {
                 for (int y = 1; y <= lattice_size; y++) {
                     for (int z = 1; z <= lattice_size; z++) {
-                        for (int atom_id = 0; atom_id < heisenberg_cell.num_atoms(); atom_id++) {
-                            sim.set_heisenberg_spin(x, y, z, atom_id, saved_spins[idx]);
+                        for (int spin_id = 0; spin_id < heisenberg_cell.num_spins(); spin_id++) {
+                            sim.set_heisenberg_spin(x, y, z, spin_id, saved_spins[idx]);
                             idx++;
                         }
                     }
@@ -189,8 +189,8 @@ int main() {
         for (int x = 1; x <= lattice_size; x++) {
             for (int y = 1; y <= lattice_size; y++) {
                 for (int z = 1; z <= lattice_size; z++) {
-                    for (int atom_id = 0; atom_id < heisenberg_cell.num_atoms(); atom_id++) {
-                        saved_spins.push_back(sim.get_heisenberg_spin(x, y, z, atom_id));
+                    for (int spin_id = 0; spin_id < heisenberg_cell.num_spins(); spin_id++) {
+                        saved_spins.push_back(sim.get_heisenberg_spin(x, y, z, spin_id));
                     }
                 }
             }
