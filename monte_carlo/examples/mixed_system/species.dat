@@ -1,5 +1,6 @@
-# Mixed species definition - both Ising and Heisenberg (for testing error handling)
-Te1_Mom        Heisenberg     0.0            0.0            0.0
-Te1_Orb        Ising          0.0            0.0            0.0  
-Te2_Mom        Heisenberg     0.5            0.5            0.5
-Te2_Orb        Ising          0.5            0.5            0.5
+# Two independent spin species - no coupling between them
+# Format: Name   SpinType   Position_x   Position_y   Position_z
+
+H  Heisenberg  0.0  0.0  0.0
+I       Ising       0.5  0.5  0.5
+
