@@ -2,6 +2,24 @@
 
 A Monte Carlo simulation engine for magnetic systems supporting Ising and Heisenberg spins with multi-atom unit cells and flexible coupling configurations.
 
+## TODO
+
+
+* Implement Kugel-Khomskii hamiltonian
+* Consider parallel tempering for improved sampling at low temperatures.
+* We can try and have a loom at ways to treat phonons in some effective manner,
+  perhaps via using some phonon density of states to sample from at each step.
+
+  So normal metropolis update for MC step is 
+    if $\Delta E < 0$ accept else accept with probability $exp(-\Delta E / kT)$
+  New way would be:
+    if $\Delta E < 0$% accept with probability proportional to the phonon DOS $D(\Delta E)$ at energy $\Delta E$
+    else accept with probability $exp(-\Delta E / kT) \cdot D(\Delta E)$
+
+* Implement and design MPI parallelization
+
+
+
 ## Requirements
 
 - **C++11 compatible compiler** (g++, clang++)
