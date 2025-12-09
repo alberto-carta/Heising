@@ -215,8 +215,8 @@ void ConfigurationParser::validate_configuration(const SimulationConfig& config)
         }
     }
     
-    // Check for mixed Ising-Heisenberg couplings
-    check_mixed_couplings(config.species, config.couplings);
+    // Note: Mixed Ising-Heisenberg couplings are now supported
+    // No need to check for mixed couplings - the simulation engine handles them
     
     // Validate parameter ranges
     if (config.lattice_size <= 0) {
@@ -253,28 +253,10 @@ SpinType ConfigurationParser::string_to_spin_type(const std::string& type_str) {
 
 void ConfigurationParser::check_mixed_couplings(const std::vector<MagneticSpecies>& species,
                                                  const std::vector<ExchangeCoupling>& couplings) {
-    // Create a map of species names to spin types
-    std::map<std::string, SpinType> species_types;
-    for (const auto& s : species) {
-        species_types[s.name] = s.spin_type;
-    }
-    
-    // Check each coupling
-    for (const auto& coupling : couplings) {
-        SpinType type1 = species_types[coupling.species1_name];
-        SpinType type2 = species_types[coupling.species2_name];
-        
-        if (type1 != type2) {
-            throw ConfigurationError(
-                "Mixed Ising-Heisenberg couplings not yet supported. "
-                "Coupling between '" + coupling.species1_name + "' (" +
-                (type1 == SpinType::ISING ? "Ising" : "Heisenberg") + ") and '" +
-                coupling.species2_name + "' (" +
-                (type2 == SpinType::ISING ? "Ising" : "Heisenberg") + ") found. "
-                "Kugel-Khomskii couplings are not yet implemented."
-            );
-        }
-    }
+    // Mixed couplings are now fully supported - this check is disabled
+    (void)species;   // Suppress unused parameter warning
+    (void)couplings; // Suppress unused parameter warning
+    // No validation needed - simulation engine handles all spin type combinations
 }
 
 } // namespace IO

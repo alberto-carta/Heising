@@ -18,48 +18,81 @@ struct SpinInfo {
     SpinType spin_type;
     double spin_magnitude;
     std::string label;
-    int site_id;  // Which physical site this spin belongs to
+    int site_id;      // Which physical site this spin belongs to
+    double x, y, z;   // Position within unit cell (fractional coordinates)
     
-    SpinInfo() : spin_type(SpinType::ISING), spin_magnitude(1.0), label(""), site_id(0) {}
-    SpinInfo(const std::string& lbl, SpinType type, double mag, int site = 0) 
-        : spin_type(type), spin_magnitude(mag), label(lbl), site_id(site) {}
+    SpinInfo() : spin_type(SpinType::ISING), spin_magnitude(1.0), label(""), 
+                 site_id(0), x(0.0), y(0.0), z(0.0) {} // Constructor for dummy objects
+    SpinInfo(const std::string& lbl, SpinType type, double mag, int site, 
+             double px, double py, double pz) 
+        : spin_type(type), spin_magnitude(mag), label(lbl), site_id(site),
+          x(px), y(py), z(pz) {} // Proper constructor
 };
 
-// Unit cell - simple container for spins
+// Structure to represent a physical site with its position
+struct Site {
+    double x, y, z;  // Position in unit cell
+    std::vector<int> spin_indices;  // Indices of spins at this site
+    
+    Site(double px, double py, double pz) : x(px), y(py), z(pz) {}
+    
+    // Check if this position matches (with tolerance for floating point)
+    bool matches_position(double px, double py, double pz, double tolerance = 1e-6) const {
+        return std::abs(x - px) < tolerance && 
+               std::abs(y - py) < tolerance && 
+               std::abs(z - pz) < tolerance;
+    }
+};
+
+// Unit cell - container for spins with position-based site management
 class UnitCell {
 private:
     std::vector<SpinInfo> spins;
-    int num_sites;  // Number of distinct physical sites
+    std::vector<Site> sites;  // List of physical sites
     
-public:
-    UnitCell() : num_sites(0) {}
-    
-    void add_spin(const std::string& label, SpinType type, double magnitude, int site_id = -1) {
-        // If site_id not specified, assign a new site
-        if (site_id == -1) {
-            site_id = num_sites++;
-        } else {
-            // Update num_sites if needed
-            if (site_id >= num_sites) {
-                num_sites = site_id + 1;
+    // Find site at given position, return -1 if not found
+    int find_site_at_position(double x, double y, double z) const {
+        for (size_t i = 0; i < sites.size(); i++) {
+            if (sites[i].matches_position(x, y, z)) {
+                return static_cast<int>(i);
             }
         }
-        spins.emplace_back(label, type, magnitude, site_id);
+        return -1;
+    }
+    
+public:
+    UnitCell() {}
+    
+    // Add spin with position - automatically assigns to correct site
+    void add_spin(const std::string& label, SpinType type, double magnitude,
+                  double x = 0.0, double y = 0.0, double z = 0.0) {
+        // Check if site already exists at this position
+        int site_id = find_site_at_position(x, y, z);
+        
+        if (site_id == -1) {
+            // Create new site at this position
+            site_id = static_cast<int>(sites.size());
+            sites.emplace_back(x, y, z);
+        }
+        
+        // Add spin index to site
+        sites[site_id].spin_indices.push_back(static_cast<int>(spins.size()));
+        
+        // Create and store spin
+        spins.emplace_back(label, type, magnitude, site_id, x, y, z);
     }
     
     int num_spins() const { return static_cast<int>(spins.size()); }
-    int get_num_sites() const { return num_sites; }
+    int get_num_sites() const { return static_cast<int>(sites.size()); }
     const SpinInfo& get_spin(int id) const { return spins[id]; }
+    const Site& get_site(int site_id) const { return sites[site_id]; }
     
     // Get all spins belonging to a given site
     std::vector<int> get_spins_at_site(int site_id) const {
-        std::vector<int> result;
-        for (int i = 0; i < num_spins(); i++) {
-            if (spins[i].site_id == site_id) {
-                result.push_back(i);
-            }
+        if (site_id < 0 || site_id >= static_cast<int>(sites.size())) {
+            return std::vector<int>();
         }
-        return result;
+        return sites[site_id].spin_indices;
     }
     
     // Check if a site has mixed spin types
@@ -122,7 +155,7 @@ public:
     }
     
     // Set coupling value - direct array access
-    void set_coupling(int atom_i, int atom_j, int dx, int dy, int dz, double coupling_value) {
+    void set_coupling(int spin_i, int spin_j, int dx, int dy, int dz, double coupling_value) {
         if (std::abs(dx) > max_offset || std::abs(dy) > max_offset || std::abs(dz) > max_offset) {
             std::cerr << "Error: Coupling offset (" << dx << "," << dy << "," << dz 
                       << ") exceeds max_offset = " << max_offset << std::endl;
@@ -133,11 +166,11 @@ public:
         int idx_y = offset_to_index(dy);
         int idx_z = offset_to_index(dz);
         
-        J[atom_i][atom_j][idx_x][idx_y][idx_z] = coupling_value;
+        J[spin_i][spin_j][idx_x][idx_y][idx_z] = coupling_value;
     }
     
     // Get coupling value - direct array access
-    double get_coupling(int atom_i, int atom_j, int dx, int dy, int dz) const {
+    double get_coupling(int spin_i, int spin_j, int dx, int dy, int dz) const {
         if (std::abs(dx) > max_offset || std::abs(dy) > max_offset || std::abs(dz) > max_offset) {
             return 0.0;  // No coupling beyond max range
         }
@@ -146,23 +179,23 @@ public:
         int idx_y = offset_to_index(dy);
         int idx_z = offset_to_index(dz);
         
-        return J[atom_i][atom_j][idx_x][idx_y][idx_z];
+        return J[spin_i][spin_j][idx_x][idx_y][idx_z];
     }
     
     // Convenience method for symmetric nearest-neighbor couplings
-    void set_nn_couplings(int atom_i, int atom_j, double coupling_value) {
+    void set_nn_couplings(int spin_i, int spin_j, double coupling_value) {
         // 6 nearest neighbors
-        set_coupling(atom_i, atom_j,  1, 0, 0, coupling_value);  // +x
-        set_coupling(atom_i, atom_j, -1, 0, 0, coupling_value);  // -x
-        set_coupling(atom_i, atom_j,  0, 1, 0, coupling_value);  // +y
-        set_coupling(atom_i, atom_j,  0,-1, 0, coupling_value);  // -y
-        set_coupling(atom_i, atom_j,  0, 0, 1, coupling_value);  // +z
-        set_coupling(atom_i, atom_j,  0, 0,-1, coupling_value);  // -z
+        set_coupling(spin_i, spin_j,  1, 0, 0, coupling_value);  // +x
+        set_coupling(spin_i, spin_j, -1, 0, 0, coupling_value);  // -x
+        set_coupling(spin_i, spin_j,  0, 1, 0, coupling_value);  // +y
+        set_coupling(spin_i, spin_j,  0,-1, 0, coupling_value);  // -y
+        set_coupling(spin_i, spin_j,  0, 0, 1, coupling_value);  // +z
+        set_coupling(spin_i, spin_j,  0, 0,-1, coupling_value);  // -z
     }
     
     // Set intra-cell coupling (same cell, dx=dy=dz=0)
-    void set_intra_coupling(int atom_i, int atom_j, double coupling_value) {
-        set_coupling(atom_i, atom_j, 0, 0, 0, coupling_value);
+    void set_intra_coupling(int spin_i, int spin_j, double coupling_value) {
+        set_coupling(spin_i, spin_j, 0, 0, 0, coupling_value);
     }
     
     int get_num_spins() const { return num_spins; }
@@ -196,7 +229,7 @@ public:
 // Helper functions for creating simple systems
 inline UnitCell create_unit_cell(SpinType model_type) {
     UnitCell cell;
-    cell.add_spin("Spin1", model_type, 1.0);
+    cell.add_spin("Spin1", model_type, 1.0, 0.0, 0.0, 0.0);  // At origin
     return cell;
 }
 

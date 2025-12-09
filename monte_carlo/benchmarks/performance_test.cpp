@@ -178,8 +178,8 @@ void benchmark_mc_steps() {
     // Test multi-spin system
     {
         UnitCell multi_cell;
-        multi_cell.add_spin("H1", SpinType::HEISENBERG, 1.0);
-        multi_cell.add_spin("I1", SpinType::ISING, 1.0);
+        multi_cell.add_spin("H1", SpinType::HEISENBERG, 1.0, 0.0, 0.0, 0.0);
+        multi_cell.add_spin("I1", SpinType::ISING, 1.0, 0.0, 0.0, 0.0);
         
         CouplingMatrix multi_couplings;
         multi_couplings.initialize(2, 1);

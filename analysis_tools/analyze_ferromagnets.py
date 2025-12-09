@@ -84,7 +84,8 @@ print(f"Heisenberg Tc estimate: Cv peak at T={T_cv:.3f}, Chi peak at T={T_chi:.3
 print(f"Average: {(T_cv + T_chi)/2:.3f} (theory: 1.44)")
 
 #%% Load Ising ferromagnet data  
-ising_file = "../monte_carlo/ising_ferromagnet_transition.dat"
+# ising_file = "../monte_carlo/ising_ferromagnet_transition.dat"
+ising_file = "../monte_carlo/ising_ferromagnet_ising_system.dat"
 ising_data = load_data(ising_file)
 
 #%% Plot Ising ferromagnet results

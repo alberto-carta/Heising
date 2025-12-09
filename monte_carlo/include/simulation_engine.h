@@ -78,6 +78,7 @@ public:
     double get_energy();
     double get_magnetization();
     double get_absolute_magnetization();
+    std::vector<double> get_magnetization_per_spin();  // Returns magnetization for each spin in unit cell
     double get_acceptance_rate() const;
     void reset_statistics();
     

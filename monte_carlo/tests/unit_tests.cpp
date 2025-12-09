@@ -28,10 +28,10 @@ bool approx_equal(double a, double b, double tolerance = 1e-10) {
 bool test_lattice_creation() {
     std::cout << "\n=== Test 1: Multi-Spin Lattice Creation ===" << std::endl;
     
-    // Create 2-spin unit cell (Heisenberg + Ising)
+    // Create 2-spin unit cell (Heisenberg + Ising at same position for KK coupling)
     UnitCell cell;
-    cell.add_spin("H1", SpinType::HEISENBERG, 1.0);
-    cell.add_spin("I1", SpinType::ISING, 1.0);
+    cell.add_spin("H1", SpinType::HEISENBERG, 1.0, 0.0, 0.0, 0.0);  // Site 0
+    cell.add_spin("I1", SpinType::ISING, 1.0, 0.0, 0.0, 0.0);        // Site 0 (same position!)
     
     // Simple coupling matrix
     CouplingMatrix couplings;
@@ -43,7 +43,8 @@ bool test_lattice_creation() {
     // Add Kugel-Khomskii coupling matrix
     KK_Matrix kk_couplings;
     kk_couplings.initialize(cell, 1);  // unit cell, max_offset = 1
-    kk_couplings.set_coupling(0, 1, 0, 0, 0, 0.1);  // Small KK coupling between H and I
+    // KK coupling between site 0 in this cell and site 0 in neighbor cell
+    kk_couplings.set_coupling(0, 0, 1, 0, 0, 0.1);  // KK along +x direction
     
     // Create simulation with KK coupling
     MonteCarloSimulation sim(cell, couplings, 3, 1.0, kk_couplings);
@@ -195,10 +196,10 @@ bool test_metropolis_algorithm() {
 bool test_mixed_spin_types() {
     std::cout << "\n=== Test 4: Mixed Spin Types (Deterministic) ===" << std::endl;
     
-    // Create unit cell with both Ising and Heisenberg spins
+    // Create unit cell with both Ising and Heisenberg spins at same position
     UnitCell mixed_cell;
-    mixed_cell.add_spin("Heisenberg", SpinType::HEISENBERG, 1.0);
-    mixed_cell.add_spin("Ising", SpinType::ISING, 1.0);
+    mixed_cell.add_spin("Heisenberg", SpinType::HEISENBERG, 1.0, 0.0, 0.0, 0.0);
+    mixed_cell.add_spin("Ising", SpinType::ISING, 1.0, 0.0, 0.0, 0.0);
     
     CouplingMatrix mixed_couplings;
     mixed_couplings.initialize(2, 1);

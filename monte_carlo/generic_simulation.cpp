@@ -25,10 +25,9 @@ UnitCell create_unit_cell_from_config(const std::vector<IO::MagneticSpecies>& sp
     UnitCell cell;
     
     for (const auto& spec : species) {
-        // Use the UnitCell::add_spin method with proper signature
-        cell.add_spin(spec.name, spec.spin_type, 1.0);  // Default magnitude = 1.0
-        // Position information is stored but not currently used in simulation
-        // Could be extended for more complex lattice structures
+        // Use position from config to automatically determine sites
+        cell.add_spin(spec.name, spec.spin_type, 1.0, 
+                     spec.local_pos[0], spec.local_pos[1], spec.local_pos[2]);
     }
     
     return cell;
@@ -291,11 +290,23 @@ void run_temperature_scan(const IO::SimulationConfig& config) {
     }
     outfile << std::endl;
     outfile << "# Lattice: " << config.lattice_size << "³" << std::endl;
-    outfile << "# Columns: T          Energy/spin   Magnetization |Magnetization| SpecificHeat  Susceptibility AcceptanceRate" << std::endl;
+    outfile << "# Columns: T Energy/spin Magnetization |Magnetization| SpecificHeat Susceptibility AcceptanceRate";
+    for (const auto& species : config.species) {
+        outfile << " Mag[" << species.name << "]";
+    }
+    outfile << std::endl;
     outfile << std::fixed << std::setprecision(8);
     
-    std::cout << "T          Energy/spin   Magnetization |Magnetization| SpecificHeat  Susceptibility AcceptanceRate" << std::endl;
-    std::cout << "---------- ------------- ------------- ------------- ------------- -------------- --------------" << std::endl;
+    std::cout << "T          Energy/spin   Magnetization |Magnetization| SpecificHeat  Susceptibility AcceptanceRate";
+    for (const auto& species : config.species) {
+        std::cout << " Mag[" << species.name << "]";
+    }
+    std::cout << std::endl;
+    std::cout << "---------- ------------- ------------- ------------- ------------- -------------- --------------";
+    for (size_t i = 0; i < config.species.size(); i++) {
+        std::cout << " --------------";
+    }
+    std::cout << std::endl;
     
     // Storage for configuration continuity
     ConfigurationSnapshot saved_config;
@@ -332,6 +343,7 @@ void run_temperature_scan(const IO::SimulationConfig& config) {
         sim.reset_statistics();
         double total_energy = 0.0, total_energy_sq = 0.0;
         double total_magnetization = 0.0, total_abs_magnetization = 0.0, total_magnetization_sq = 0.0;
+        std::vector<double> total_mag_per_spin(config.species.size(), 0.0);
         int num_samples = 0;
         
         for (int sweep = 0; sweep < config.monte_carlo.measurement_steps; sweep++) {
@@ -343,12 +355,16 @@ void run_temperature_scan(const IO::SimulationConfig& config) {
                 double energy = sim.get_energy();
                 double magnetization = sim.get_magnetization();
                 double abs_magnetization = sim.get_absolute_magnetization();
+                std::vector<double> mag_per_spin = sim.get_magnetization_per_spin();
                 
                 total_energy += energy;
                 total_energy_sq += energy * energy;
                 total_magnetization += magnetization;
                 total_abs_magnetization += abs_magnetization;
                 total_magnetization_sq += magnetization * magnetization;
+                for (size_t i = 0; i < mag_per_spin.size(); i++) {
+                    total_mag_per_spin[i] += mag_per_spin[i];
+                }
                 num_samples++;
             }
             
@@ -365,6 +381,11 @@ void run_temperature_scan(const IO::SimulationConfig& config) {
         double avg_abs_magnetization_per_spin = total_abs_magnetization / num_samples / total_spins;
         double avg_magnetization_sq_per_spin = total_magnetization_sq / num_samples / (total_spins * total_spins);
         
+        std::vector<double> avg_mag_per_spin(config.species.size());
+        for (size_t i = 0; i < config.species.size(); i++) {
+            avg_mag_per_spin[i] = total_mag_per_spin[i] / num_samples;
+        }
+        
         double specific_heat = (avg_energy_sq_per_spin - avg_energy_per_spin * avg_energy_per_spin) / (T * T);
         double susceptibility = (avg_magnetization_sq_per_spin - avg_magnetization_per_spin * avg_magnetization_per_spin) / T;
         double accept_rate = sim.get_acceptance_rate();
@@ -377,7 +398,11 @@ void run_temperature_scan(const IO::SimulationConfig& config) {
                   << std::setw(13) << avg_abs_magnetization_per_spin << " "
                   << std::setw(13) << specific_heat << " "
                   << std::setw(14) << susceptibility << " "
-                  << std::setw(14) << std::setprecision(6) << accept_rate << std::endl;
+                  << std::setw(14) << std::setprecision(6) << accept_rate;
+        for (const auto& mag : avg_mag_per_spin) {
+            std::cout << " " << std::setw(14) << std::setprecision(8) << mag;
+        }
+        std::cout << std::endl;
         
         outfile << std::fixed << std::setprecision(8);
         outfile << std::setw(10) << T << " "
@@ -386,7 +411,11 @@ void run_temperature_scan(const IO::SimulationConfig& config) {
                 << std::setw(13) << avg_abs_magnetization_per_spin << " "
                 << std::setw(13) << specific_heat << " "
                 << std::setw(14) << susceptibility << " "
-                << std::setw(14) << std::setprecision(6) << accept_rate << std::endl;
+                << std::setw(14) << std::setprecision(6) << accept_rate;
+        for (const auto& mag : avg_mag_per_spin) {
+            outfile << " " << std::setw(14) << std::setprecision(8) << mag;
+        }
+        outfile << std::endl;
         
         // Save configuration for next temperature step
         std::cout << "  Saving configuration for next temperature step..." << std::endl;

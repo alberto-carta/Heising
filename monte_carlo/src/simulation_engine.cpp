@@ -250,6 +250,38 @@ double MonteCarloSimulation::get_magnetization() {
     return total_mag;
 }
 
+// Per-spin magnetization - returns magnetization for each spin type in unit cell
+std::vector<double> MonteCarloSimulation::get_magnetization_per_spin() {
+    int num_spins = unit_cell.num_spins();
+    std::vector<double> mag_per_spin(num_spins, 0.0);
+    
+    for (int x = 1; x <= lattice_size; x++) {
+        for (int y = 1; y <= lattice_size; y++) {
+            for (int z = 1; z <= lattice_size; z++) {
+                for (int spin_id = 0; spin_id < num_spins; spin_id++) {
+                    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                    int idx = flatten_index(x, y, z, spin_id);
+                    
+                    if (spin.spin_type == SpinType::ISING) {
+                        mag_per_spin[spin_id] += ising_spins[idx] * spin.spin_magnitude;
+                    } else {
+                        // For Heisenberg, use z-component (like total magnetization)
+                        mag_per_spin[spin_id] += heisenberg_z[idx] * spin.spin_magnitude;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Normalize by number of unit cells
+    int total_cells = lattice_size * lattice_size * lattice_size;
+    for (int i = 0; i < num_spins; i++) {
+        mag_per_spin[i] /= total_cells;
+    }
+    
+    return mag_per_spin;
+}
+
 // Absolute magnetization
 double MonteCarloSimulation::get_absolute_magnetization() {
     double total_mag = 0.0;

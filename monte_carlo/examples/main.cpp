@@ -160,12 +160,12 @@ void run_heisenberg_sweep(const SimParams& params) {
 void run_multi_atom_demo(const SimParams& params) {
     std::cout << "=== Multi-Spin System Demonstration ===" << std::endl;
     
-    // Create 4-spin unit cell with mixed spin types
+    // Create 4-spin unit cell with mixed spin types at different positions
     UnitCell multi_cell;
-    multi_cell.add_spin("H1", SpinType::HEISENBERG, 1.0);
-    multi_cell.add_spin("H2", SpinType::HEISENBERG, 1.0);
-    multi_cell.add_spin("I1", SpinType::ISING, 1.0);
-    multi_cell.add_spin("I2", SpinType::ISING, 1.0);
+    multi_cell.add_spin("H1", SpinType::HEISENBERG, 1.0, 0.0, 0.0, 0.0);  // Site 0
+    multi_cell.add_spin("H2", SpinType::HEISENBERG, 1.0, 0.5, 0.0, 0.0);  // Site 1
+    multi_cell.add_spin("I1", SpinType::ISING, 1.0, 0.0, 0.5, 0.0);       // Site 2
+    multi_cell.add_spin("I2", SpinType::ISING, 1.0, 0.5, 0.5, 0.0);       // Site 3
     
     // Create coupling matrix with extended range
     CouplingMatrix multi_couplings;
