@@ -20,8 +20,8 @@ endif
 SRCDIR = src
 BUILDDIR = build
 
-SOURCES = $(SRCDIR)/simulation_engine.cpp $(SRCDIR)/spin_operations.cpp $(SRCDIR)/random.cpp
-IO_SOURCES = $(SRCDIR)/io/configuration_parser.cpp
+SOURCES = $(SRCDIR)/simulation_engine.cpp $(SRCDIR)/spin_operations.cpp $(SRCDIR)/random.cpp $(SRCDIR)/simulation_utils.cpp $(SRCDIR)/profiling.cpp
+IO_SOURCES = $(SRCDIR)/io/configuration_parser.cpp $(SRCDIR)/io/diagnostic_utils.cpp
 MPI_SOURCES = $(SRCDIR)/mpi_wrapper.cpp
 OBJECTS = $(SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o) $(IO_SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
 MPI_OBJECTS = $(SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/mpi/%.o) $(IO_SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/mpi/%.o) $(MPI_SOURCES:$(SRCDIR)/%.cpp=$(BUILDDIR)/mpi/%.o)

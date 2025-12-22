@@ -53,12 +53,59 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
     heisenberg_y.resize(total_spins);
     heisenberg_z.resize(total_spins);
     
-    std::cout << "FAST simulation engine initialized!" << std::endl;
+    // Initialize tracked observables
+    current_mag_per_spin.resize(unit_cell.num_spins(), spin3d(0, 0, 0));
+    current_energy = 0.0;
+    current_magnetization = 0.0;
+    
+    std::cout << "Simulation engine initialized!" << std::endl;
 }
 
-// Initialize lattice with ordered spins (ferromagnetic ground state)
-void MonteCarloSimulation::initialize_lattice() {
-    std::cout << "Initializing lattice with ordered spins (ferromagnetic state)..." << std::endl;
+// Initialize lattice with ordered spins 
+void MonteCarloSimulation::initialize_lattice_custom(const std::vector<double>& pattern) {
+    std::cout << "Initializing lattice with custom pattern [";
+    for (size_t i = 0; i < pattern.size(); i++) {
+        std::cout << pattern[i];
+        if (i < pattern.size() - 1) std::cout << ", ";
+    }
+    std::cout << "]..." << std::endl;
+    
+    int num_spins_per_cell = unit_cell.num_spins();
+    if (pattern.size() != static_cast<size_t>(num_spins_per_cell)) {
+        std::cerr << "ERROR: Pattern size (" << pattern.size() 
+                  << ") does not match number of spins in unit cell (" 
+                  << num_spins_per_cell << ")" << std::endl;
+        throw std::runtime_error("Invalid initialization pattern size");
+    }
+    
+    for (int x = 1; x <= lattice_size; x++) {
+        for (int y = 1; y <= lattice_size; y++) {
+            for (int z = 1; z <= lattice_size; z++) {
+                for (int spin_id = 0; spin_id < num_spins_per_cell; spin_id++) {
+                    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                    int idx = flatten_index(x, y, z, spin_id);
+                    double value = pattern[spin_id];
+                    
+                    if (spin.spin_type == SpinType::ISING) {
+                        // For Ising: use sign of pattern value
+                        ising_spins[idx] = (value >= 0) ? 1.0 : -1.0;
+                    } else {
+                        // For Heisenberg: use pattern value as sz, normalize
+                        heisenberg_x[idx] = 0.0;
+                        heisenberg_y[idx] = 0.0;
+                        heisenberg_z[idx] = (value >= 0) ? 1.0 : -1.0;
+                    }
+                }
+            }
+        }
+    }
+    
+    std::cout << "Lattice initialized with custom pattern!" << std::endl;
+    update_tracked_observables();
+}
+
+void MonteCarloSimulation::initialize_lattice_random() {
+    std::cout << "Initializing lattice with random spin orientations..." << std::endl;
     
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
@@ -68,19 +115,31 @@ void MonteCarloSimulation::initialize_lattice() {
                     int idx = flatten_index(x, y, z, spin_id);
                     
                     if (spin.spin_type == SpinType::ISING) {
-                        ising_spins[idx] = 1.0;  // All spins up for ferromagnet
+                        ising_spins[idx] = (ran1(&seed) < 0.5) ? 1.0 : -1.0;
                     } else {
-                        // All spins pointing in +z direction for ferromagnet
+                        // Random point on unit sphere
                         heisenberg_x[idx] = 0.0;
                         heisenberg_y[idx] = 0.0;
-                        heisenberg_z[idx] = 1.0;
+                        heisenberg_z[idx] = (ran1(&seed) < 0.5) ? 1.0 : -1.0;
+                        // For true random, would use:
+                        // double theta = acos(2.0 * ran1(&seed) - 1.0);
+                        // double phi = 2.0 * M_PI * ran1(&seed);
+                        // But keeping it simple for now
                     }
                 }
             }
         }
     }
     
-    std::cout << "Lattice initialized in ferromagnetic ground state!" << std::endl;
+    std::cout << "Lattice initialized with random spins!" << std::endl;
+    update_tracked_observables();
+}
+
+// Update tracked observables by recomputing from current configuration
+void MonteCarloSimulation::update_tracked_observables() {
+    current_energy = get_energy();
+    current_magnetization = get_magnetization();
+    current_mag_per_spin = get_magnetization_vector_per_spin();
 }
 
 // Local energy calculation 
@@ -188,6 +247,31 @@ void MonteCarloSimulation::run_monte_carlo_step() {
         heisenberg_z[idx] = old_hz;
     } else {
         total_acceptances++;
+        
+        // Update tracked observables incrementally
+        current_energy += energy_change;
+        
+        // Update magnetization (change from old to new spin)
+        if (spin.spin_type == SpinType::ISING) {
+            double mag_change = (ising_spins[idx] - old_ising) * spin.spin_magnitude;  // +2S or -2S
+            current_magnetization += mag_change;
+            current_mag_per_spin[spin_id].z += mag_change / (lattice_size * lattice_size * lattice_size);  // Track per-spin average
+        } else {
+            // For Heisenberg, mag change is vector difference
+            double mag_change_x = heisenberg_x[idx] - old_hx;
+            double mag_change_y = heisenberg_y[idx] - old_hy;
+            double mag_change_z = heisenberg_z[idx] - old_hz;
+            double old_mag = std::sqrt(old_hx*old_hx + old_hy*old_hy + old_hz*old_hz);
+            double new_mag = std::sqrt(heisenberg_x[idx]*heisenberg_x[idx] + 
+                                      heisenberg_y[idx]*heisenberg_y[idx] + 
+                                      heisenberg_z[idx]*heisenberg_z[idx]);
+            current_magnetization += (new_mag - old_mag) * spin.spin_magnitude;
+            // Track per-spin average (divided by number of cells)
+            double norm = 1.0 / (lattice_size * lattice_size * lattice_size);
+            current_mag_per_spin[spin_id].x += mag_change_x * spin.spin_magnitude * norm;
+            current_mag_per_spin[spin_id].y += mag_change_y * spin.spin_magnitude * norm;
+            current_mag_per_spin[spin_id].z += mag_change_z * spin.spin_magnitude * norm;
+        }
     }
 }
 
@@ -206,7 +290,7 @@ void MonteCarloSimulation::run_warmup_phase(int warmup_steps) {
         }
     }
     
-    std::cout << "Fast warmup phase completed." << std::endl;
+    std::cout << "Warmup phase completed." << std::endl;
 }
 
 // Energy calculation

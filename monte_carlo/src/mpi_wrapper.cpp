@@ -47,6 +47,18 @@ void MPIEnvironment::barrier() {
 #endif
 }
 
+double MPIEnvironment::barrier_with_timing() {
+#ifdef USE_MPI
+    if (is_initialized) {
+        double start_time = MPI_Wtime();
+        MPI_Barrier(MPI_COMM_WORLD);
+        double end_time = MPI_Wtime();
+        return end_time - start_time;
+    }
+#endif
+    return 0.0;
+}
+
 void MPIEnvironment::print_info() const {
 #ifdef USE_MPI
     if (is_initialized) {

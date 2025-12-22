@@ -5,34 +5,23 @@ import pandas as pd
 import os
 
 def load_heisenberg_data(filename):
+    """Load  data from the output file."""
     if not os.path.exists(filename):
         print(f"Error: {filename} not found!")
+        print("Please run the heisenberg_analysis program first.")
         return None
     
     try:
-        column_names = None
-        # --- Step 1: Detect Header Automatically ---
-        with open(filename, 'r') as f:
-            for line in f:
-                # Look for the line that starts with "# Columns:"
-                if line.startswith('# Columns:'):
-                    # Remove the prefix and split into a list of names
-                    column_names = line.replace('# Columns:', '').strip().split()
-                    break
+        # Read the data file, handling comments and whitespace-separated data
+        data = pd.read_csv(filename, 
+                          comment='#', 
+                          delim_whitespace=True,
+                          names=['Temperature', 'Energy_per_spin', 'Magnetization_per_spin', 
+                                 'SpecificHeat', 'Susceptibility', 'AcceptanceRate', '<M1_dot_M1>', '<M1_dot_M2>', '<M1_dot_M3>', '<M1_dot_M4>'])
         
-        # --- Step 2: Load Data ---
-        # If we found column names, use them; otherwise, let pandas use default integers
-        data = pd.read_csv(
-            filename, 
-            comment='#', 
-            delim_whitespace=True,
-            names=column_names,  # Dynamically assigned
-            header=None          # Data starts after comments
-        )
-        
-        print(f"Loaded {len(data)} points with {len(data.columns)} columns.")
+        print(f"Loaded {len(data)} temperature points from {filename}")
+        print(f"Temperature range: T = {data['Temperature'].min():.2f} to {data['Temperature'].max():.2f}")
         return data
-
     except Exception as e:
         print(f"Error loading {filename}: {e}")
         return None
@@ -44,9 +33,9 @@ def plot_transition(data):
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle('3D Heisenberg  Phase Transition', fontsize=16, fontweight='bold')
     
-    T = data['T'].values
+    T = data['Temperature'].values
     
-    # Plot 1: Magnetization vs T 
+    # Plot 1: Magnetization vs Temperature 
     ax1.plot(T, data['<M1_dot_M1>'], linewidth=2, markersize=4, 
              label='M/N (z-component)', alpha=0.8)
     ax1.plot(T, data['<M1_dot_M2>'],  linewidth=2, markersize=4, 
@@ -56,9 +45,9 @@ def plot_transition(data):
     ax1.plot(T, data['<M1_dot_M4>'], linewidth=2, markersize=4, 
              label='M/N (z-component)', alpha=0.8)
     ax1.axhline(y=0, color='k', linestyle='--', alpha=0.3)
-    ax1.set_xlabel('T T')
+    ax1.set_xlabel('Temperature T')
     ax1.set_ylabel('Magnetization per spin')
-    ax1.set_title('Magnetization vs T\n(Shows ordering)')
+    ax1.set_title('Magnetization vs Temperature\n(Shows ordering)')
     ax1.grid(True, alpha=0.3)
     ax1.legend()
     
@@ -68,43 +57,43 @@ def plot_transition(data):
                 label=f'Theory: Tc ≈ {T_c_theory}')
     ax1.legend()
     
-    # Plot 2: Energy vs T
+    # Plot 2: Energy vs Temperature
     ax2.plot(T, data['Energy_per_spin'], 'go-', linewidth=2, markersize=4)
     ax2.axhline(y=-3.0, color='k', linestyle='--', alpha=0.5, 
                 label='Ground state: -3.0')
-    ax2.set_xlabel('T T')
+    ax2.set_xlabel('Temperature T')
     ax2.set_ylabel('Energy per spin')
     ax2.set_title('Average Energy per Spin')
     ax2.grid(True, alpha=0.3)
     ax2.legend()
     
-    # Plot 3: Specific Heat vs T (peaks at Tc)
+    # Plot 3: Specific Heat vs Temperature (peaks at Tc)
     ax3.plot(T, data['SpecificHeat'], 'bo-', linewidth=2, markersize=4)
     ax3.axvline(x=T_c_theory, color='red', linestyle=':', alpha=0.7)
-    ax3.set_xlabel('T T')
+    ax3.set_xlabel('Temperature T')
     ax3.set_ylabel('Specific Heat C_v')
     ax3.set_title('Specific Heat\n(Peak indicates Tc)')
     ax3.grid(True, alpha=0.3)
     
     # Find and mark the peak
     max_cv_idx = data['SpecificHeat'].idxmax()
-    T_max_cv = data.iloc[max_cv_idx]['T']
+    T_max_cv = data.iloc[max_cv_idx]['Temperature']
     max_cv = data.iloc[max_cv_idx]['SpecificHeat']
     ax3.plot(T_max_cv, max_cv, 'r*', markersize=12, 
              label=f'Peak at T = {T_max_cv:.2f}')
     ax3.legend()
     
-    # Plot 4: Susceptibility vs T (also peaks at Tc)
+    # Plot 4: Susceptibility vs Temperature (also peaks at Tc)
     ax4.plot(T, data['Susceptibility'], 'mo-', linewidth=2, markersize=4)
     ax4.axvline(x=T_c_theory, color='red', linestyle=':', alpha=0.7)
-    ax4.set_xlabel('T T')
+    ax4.set_xlabel('Temperature T')
     ax4.set_ylabel('Magnetic Susceptibility χ')
     ax4.set_title('Magnetic Susceptibility\n(Peak indicates Tc)')
     ax4.grid(True, alpha=0.3)
     
     # Find and mark the peak
     max_chi_idx = data['Susceptibility'].idxmax()
-    T_max_chi = data.iloc[max_chi_idx]['T']
+    T_max_chi = data.iloc[max_chi_idx]['Temperature']
     max_chi = data.iloc[max_chi_idx]['Susceptibility']
     ax4.plot(T_max_chi, max_chi, 'r*', markersize=12, 
              label=f'Peak at T = {T_max_chi:.2f}')
@@ -118,7 +107,7 @@ def plot_transition_details(data):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle('Heisenberg  Transition Details', fontsize=16, fontweight='bold')
     
-    T = data['T'].values
+    T = data['Temperature'].values
     
     # Focus on transition region (around T = 1.0 to 2.0)
     transition_mask = (T >= 0.8) & (T <= 2.5)
@@ -130,7 +119,7 @@ def plot_transition_details(data):
     ax1.axhline(y=0, color='k', linestyle='--', alpha=0.3)
     ax1.axvline(x=1.44, color='red', linestyle=':', alpha=0.7, 
                 label='Theory: Tc ≈ 1.44')
-    ax1.set_xlabel('T T')
+    ax1.set_xlabel('Temperature T')
     ax1.set_ylabel('Magnetization per spin')
     ax1.set_title('Transition Region: Magnetization')
     ax1.grid(True, alpha=0.3)
@@ -147,7 +136,7 @@ def plot_transition_details(data):
     ax2.axvline(x=1.44, color='red', linestyle=':', alpha=0.7, 
                 label='Theory: Tc ≈ 1.44')
     
-    ax2.set_xlabel('T T')
+    ax2.set_xlabel('Temperature T')
     ax2.set_ylabel('Specific Heat C_v', color='blue')
     ax2_twin.set_ylabel('Susceptibility χ', color='magenta')
     ax2.set_title('Transition Peaks')
@@ -169,11 +158,11 @@ def analyze_critical_temperature(data):
     
     # Find peaks in specific heat and susceptibility
     max_cv_idx = data['SpecificHeat'].idxmax()
-    T_cv = data.iloc[max_cv_idx]['T']
+    T_cv = data.iloc[max_cv_idx]['Temperature']
     max_cv = data.iloc[max_cv_idx]['SpecificHeat']
     
     max_chi_idx = data['Susceptibility'].idxmax()
-    T_chi = data.iloc[max_chi_idx]['T']
+    T_chi = data.iloc[max_chi_idx]['Temperature']
     max_chi = data.iloc[max_chi_idx]['Susceptibility']
     
     print(f"Specific heat peak:     Cv_max = {max_cv:8.3f} at T = {T_cv:.3f}")
@@ -195,8 +184,8 @@ def analyze_critical_temperature(data):
     
     # Analyze magnetization behavior
     print(f"\nMagnetization analysis:")
-    low_T_data = data[data['T'] <= 0.5]
-    high_T_data = data[data['T'] >= 3.0]
+    low_T_data = data[data['Temperature'] <= 0.5]
+    high_T_data = data[data['Temperature'] >= 3.0]
     
     if len(low_T_data) > 0:
         avg_low_T_mag = low_T_data['Magnetization_per_spin'].abs().mean()
@@ -208,8 +197,7 @@ def analyze_critical_temperature(data):
     
     return T_c_estimate
 #%%
-data = load_heisenberg_data("./")
-
+data = load_heisenberg_data("./debugging_.observables")
 
 # plot transition
 fig1, T_cv, T_chi = plot_transition(data)

@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <algorithm>
 #include "../spin_types.h"
 
 namespace IO {
@@ -72,6 +73,56 @@ struct TemperatureConfig {
 struct OutputConfig {
     std::string base_name;
     std::string directory;
+    
+    // Observable output options
+    bool output_energy_total = true;           // Output total energy (in addition to per-spin)
+    bool output_onsite_magnetization = false;  // Output per-species magnetization
+    bool output_correlations = true;           // Output spin-spin correlations with first spin
+    
+    // Legacy: always output basic observables (E/spin, M, Cv, chi, acceptance)
+};
+
+/**
+ * Initial configuration options
+ */
+struct InitializationConfig {
+    enum Type { RANDOM, CUSTOM };
+    Type type = RANDOM;
+    
+    // For CUSTOM type: specify values for each spin in unit cell
+    // For Ising: +1 or -1
+    // For Heisenberg: will be interpreted as sz component (sx=sy=0, normalized)
+    std::vector<double> pattern;
+    
+    // Random seed for RANDOM initialization (uses global seed if not set)
+    long int random_seed = -1;
+};
+
+/**
+ * Diagnostic and profiling options
+ */
+struct DiagnosticConfig {
+    bool enable_profiling = false;                // Enable timing/profiling output
+    bool enable_config_dump = false;              // Enable configuration dumps
+    bool enable_observable_evolution = false;     // Track observable evolution during measurement
+    
+    // Configuration dump options
+    std::vector<int> dump_ranks;                  // Which ranks to dump (empty = none)
+    bool dump_all_ranks = false;                  // If true, dump all ranks
+    int dump_every_n_measurements = 10;           // Dump every N measurements
+    std::string dump_format = "text";             // "text" or "binary" (currently only text supported)
+    
+    // Profiling options
+    bool estimate_autocorrelation = true;          // Estimate autocorrelation times (printed to stdout)
+    bool recompute_observables_each_sample = false; // If true, recompute energy/mag from scratch each sample (slow but accurate)
+                                                    // If false, track incrementally (fast, recommended)
+    
+    // Helper to check if a specific rank should dump
+    bool should_dump_rank(int rank) const {
+        if (!enable_config_dump && !enable_observable_evolution) return false;
+        if (dump_all_ranks) return true;
+        return std::find(dump_ranks.begin(), dump_ranks.end(), rank) != dump_ranks.end();
+    }
 };
 
 /**
@@ -90,6 +141,12 @@ struct SimulationConfig {
     
     // Output settings
     OutputConfig output;
+    
+    // Diagnostic settings (optional)
+    DiagnosticConfig diagnostics;
+    
+    // Initialization settings (optional)
+    InitializationConfig initialization;
     
     // Input file paths
     std::string species_file;

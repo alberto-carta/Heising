@@ -47,6 +47,12 @@ public:
     // Barrier synchronization
     void barrier();
     
+    /**
+     * Barrier with timing - returns time spent waiting at barrier (seconds)
+     * All ranks measure their wait time, rank 0 collects statistics
+     */
+    double barrier_with_timing();
+    
     // Print info about MPI setup
     void print_info() const;
 };

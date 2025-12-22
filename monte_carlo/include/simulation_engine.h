@@ -39,6 +39,11 @@ private:
     long int total_attempts;
     long int total_acceptances;
     
+    // Tracked observables (updated incrementally during MC)
+    double current_energy;
+    double current_magnetization;
+    std::vector<spin3d> current_mag_per_spin;
+    
     // Fast indexing
     inline int flatten_index(int x, int y, int z, int spin_id) const {
         int num_spins = unit_cell.num_spins();
@@ -70,16 +75,21 @@ public:
     bool has_kugel_khomskii() const { return kk_matrix.has_value(); }
     
     // Main methods
-    void initialize_lattice();
+    void initialize_lattice_custom(const std::vector<double>& pattern);
+    void initialize_lattice_random();
+    void update_tracked_observables();  // Recompute tracked energy/magnetization
     void run_monte_carlo_step();
     void run_warmup_phase(int warmup_steps);
     
     // Measurements
-    double get_energy();
-    double get_magnetization();
+    double get_energy();  // Recompute from scratch
+    double get_magnetization();  // Recompute from scratch
+    double get_tracked_energy() const { return current_energy; }  // Get tracked value (fast O(1))
+    double get_tracked_magnetization() const { return current_magnetization; }  // Get tracked value (fast O(1))
+    const std::vector<spin3d>& get_tracked_magnetization_vector_per_spin() const { return current_mag_per_spin; }  // Get tracked per-spin magnetization (fast O(1))
     double get_absolute_magnetization();
     std::vector<double> get_magnetization_per_spin();  // Returns z-component magnetization for each spin
-    std::vector<spin3d> get_magnetization_vector_per_spin();  // Returns full vector <M> for each spin
+    std::vector<spin3d> get_magnetization_vector_per_spin();  // Returns full vector <M> for each spin (slow O(N))
     std::vector<double> get_magnetization_magnitude_per_spin();  // Returns <|M|> for each spin type
     
     // Spin correlation measurements (for multi-walker simulations)

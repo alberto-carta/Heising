@@ -1,3 +1,76 @@
+/*
+ * Configuration Parser for Monte Carlo Simulations
+ * 
+ * TOML Configuration Reference:
+ * =============================
+ * 
+ * [simulation]
+ *   type = "temperature_scan"           # Simulation type (default: "temperature_scan")
+ *   seed = -12345                       # Random number seed (default: -12345)
+ * 
+ * [lattice]
+ *   size = 8                            # Lattice size (cubic lattice: L×L×L)
+ * 
+ * [monte_carlo]
+ *   warmup_steps = 8000                 # Number of warmup sweeps
+ *   measurement_steps = 80000           # Number of measurement sweeps
+ *   sampling_frequency = 100            # Sample every N sweeps
+ * 
+ * [temperature]
+ *   # For single temperature:
+ *   value = 2.0                         # Single temperature value
+ *   
+ *   # For temperature scan (default):
+ *   max = 6.0                           # Maximum temperature
+ *   min = 0.5                           # Minimum temperature
+ *   step = 0.2                          # Temperature step size
+ * 
+ * [output]
+ *   base_name = "simulation"            # Output file base name
+ *   directory = "."                     # Output directory
+ *   
+ *   # Observable output options (all default to false):
+ *   output_energy_total = false         # Output total energy (in addition to per-spin)
+ *   output_onsite_magnetization = false # Output on-site magnetization for each species
+ *   output_correlations = true          # Output spin correlations with first spin (default: true if not specified)
+ * 
+ * [input_files]
+ *   species = "species.dat"             # Species definitions file
+ *   couplings = "couplings.dat"         # Exchange couplings file
+ *   kugel_khomskii = ""                 # Optional: Kugel-Khomskii interactions file
+ * 
+ * [initialization]
+ *   type = "random"                     # Initialization type: "random" or "custom"
+ *   pattern = [1, -1, 1, -1]            # For type="custom": values for each spin in unit cell
+ *                                       # Ising: +1/-1, Heisenberg: sz component (-1 to +1)
+ *   random_seed = -1                    # Optional: separate seed for initialization (default: use main seed)
+ * 
+ * [diagnostics]
+ *   enable_profiling = false            # Enable timing/performance profiling
+ *   enable_config_dump = false          # Enable configuration snapshots
+ *   enable_observable_evolution = false # Enable per-measurement observable tracking
+ *   
+ *   dump_ranks = [0, 1]                 # Ranks to dump: array of integers, "all", or "none"
+ *   dump_every_n_measurements = 10      # Dump configuration every N measurements
+ *   dump_format = "text"                # Format: "text" (only text currently supported)
+ *   estimate_autocorrelation = true     # Estimate autocorrelation times at end of each T
+ *   
+ *   # Performance options:
+ *   recompute_observables_each_sample = false  # If true: recompute energy/magnetization from scratch each sample (slow but accurate)
+ *                                              # If false (default): use incremental tracking (fast, recommended)
+ *                                              # Note: Correlations always require full computation regardless of this setting
+ * 
+ * Species File Format (species.dat):
+ *   # name  type  x  y  z
+ *   Fe  Heisenberg  0.0  0.0  0.0
+ *   Ni  Ising       0.5  0.5  0.5
+ * 
+ * Couplings File Format (couplings.dat):
+ *   # species1  species2  Rx  Ry  Rz  J
+ *   Fe  Fe   1   0   0   -1.0
+ *   Fe  Ni   0   0   0    0.5
+ */
+
 #include "../include/io/configuration_parser.h"
 #include <fstream>
 #include <sstream>
@@ -95,6 +168,11 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             const auto output = toml::find(data, "output");
             config.output.base_name = toml::find_or<std::string>(output, "base_name", "simulation");
             config.output.directory = toml::find_or<std::string>(output, "directory", ".");
+            
+            // Parse observable output options
+            config.output.output_energy_total = toml::find_or<bool>(output, "output_energy_total", false);
+            config.output.output_onsite_magnetization = toml::find_or<bool>(output, "output_onsite_magnetization", false);
+            config.output.output_correlations = toml::find_or<bool>(output, "output_correlations", false);
         } else {
             config.output.base_name = "simulation";
             config.output.directory = ".";
@@ -110,6 +188,80 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             config.species_file = "species.dat";
             config.couplings_file = "couplings.dat";
             config.kugel_khomskii_file = "";
+        }
+        
+        // Parse diagnostics section (optional)
+        if (data.contains("diagnostics")) {
+            const auto diag = toml::find(data, "diagnostics");
+            config.diagnostics.enable_profiling = toml::find_or<bool>(diag, "enable_profiling", false);
+            config.diagnostics.enable_config_dump = toml::find_or<bool>(diag, "enable_config_dump", false);
+            config.diagnostics.enable_observable_evolution = toml::find_or<bool>(diag, "enable_observable_evolution", false);
+            
+            config.diagnostics.dump_every_n_measurements = toml::find_or<int>(diag, "dump_every_n_measurements", 10);
+            config.diagnostics.dump_format = toml::find_or<std::string>(diag, "dump_format", "text");
+            config.diagnostics.estimate_autocorrelation = toml::find_or<bool>(diag, "estimate_autocorrelation", true);
+            config.diagnostics.recompute_observables_each_sample = toml::find_or<bool>(diag, "recompute_observables_each_sample", false);
+            
+            // Parse dump_ranks - can be "all", "none", or array of integers
+            if (diag.contains("dump_ranks")) {
+                const auto& dump_ranks_value = toml::find(diag, "dump_ranks");
+                
+                if (dump_ranks_value.is_string()) {
+                    std::string dump_ranks_str = dump_ranks_value.as_string();
+                    if (dump_ranks_str == "all") {
+                        config.diagnostics.dump_all_ranks = true;
+                    } else if (dump_ranks_str == "none") {
+                        config.diagnostics.dump_all_ranks = false;
+                        config.diagnostics.dump_ranks.clear();
+                    } else {
+                        throw ConfigurationError("Invalid dump_ranks string: " + dump_ranks_str + 
+                                               " (expected 'all' or 'none')");
+                    }
+                } else if (dump_ranks_value.is_array()) {
+                    const auto& ranks_array = dump_ranks_value.as_array();
+                    for (const auto& rank : ranks_array) {
+                        config.diagnostics.dump_ranks.push_back(rank.as_integer());
+                    }
+                } else {
+                    throw ConfigurationError("dump_ranks must be a string ('all'/'none') or array of integers");
+                }
+            }
+        }
+        
+        // Parse initialization section (optional)
+        if (data.contains("initialization")) {
+            const auto init = toml::find(data, "initialization");
+            
+            // Parse type
+            std::string type_str = toml::find_or<std::string>(init, "type", "random");
+            if (type_str == "random") {
+                config.initialization.type = InitializationConfig::RANDOM;
+            } else if (type_str == "custom") {
+                config.initialization.type = InitializationConfig::CUSTOM;
+            } else {
+                throw ConfigurationError("Invalid initialization type: " + type_str + 
+                                       " (expected 'random' or 'custom')");
+            }
+            
+            // Parse pattern if provided
+            if (init.contains("pattern")) {
+                const auto& pattern_value = toml::find(init, "pattern");
+                if (pattern_value.is_array()) {
+                    const auto& pattern_array = pattern_value.as_array();
+                    for (const auto& val : pattern_array) {
+                        if (val.is_floating()) {
+                            config.initialization.pattern.push_back(val.as_floating());
+                        } else if (val.is_integer()) {
+                            config.initialization.pattern.push_back(static_cast<double>(val.as_integer()));
+                        }
+                    }
+                } else {
+                    throw ConfigurationError("initialization.pattern must be an array of numbers");
+                }
+            }
+            
+            // Parse random seed if provided
+            config.initialization.random_seed = toml::find_or<long int>(init, "random_seed", -1);
         }
         
     } catch (const toml::syntax_error& e) {
