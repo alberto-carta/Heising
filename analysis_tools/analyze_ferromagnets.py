@@ -12,10 +12,11 @@ import pandas as pd
 import os
 
 #%% Load data function
+
 def load_data(filename):
     """Load ferromagnet data from output file."""
     data = pd.read_csv(filename, comment='#', delim_whitespace=True,
-                      names=['T', 'E', 'M', 'AbsM', 'Cv', 'Chi', 'AcceptRate'])
+                      names=['T', 'E', 'M', 'AbsM', 'Cv', 'Chi', 'AcceptRate', 'Mag'])
     print(f"Loaded {len(data)} points from {filename}")
     return data
 
@@ -85,7 +86,7 @@ print(f"Average: {(T_cv + T_chi)/2:.3f} (theory: 1.44)")
 
 #%% Load Ising ferromagnet data  
 # ising_file = "../monte_carlo/ising_ferromagnet_transition.dat"
-ising_file = "../monte_carlo/ising_ferromagnet_ising_system.dat"
+ising_file = "../monte_carlo/examples/ising_ferromagnet/ising_ferromagnet_proper_ising_system.dat"
 ising_data = load_data(ising_file)
 
 #%% Plot Ising ferromagnet results

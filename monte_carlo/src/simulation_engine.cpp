@@ -27,6 +27,7 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
     std::cout << "Creating Monte Carlo simulation:" << std::endl;
     std::cout << "Unit cell: " << unit_cell.num_spins() << " spins" << std::endl;
     std::cout << "Lattice size: " << size << "x" << size << "x" << size << std::endl;
+    std::cout << std::fixed << std::setprecision(4);
     std::cout << "Temperature: " << T << std::endl;
     
     // Print spin information
@@ -281,6 +282,193 @@ std::vector<double> MonteCarloSimulation::get_magnetization_per_spin() {
     
     return mag_per_spin;
 }
+
+// Per-spin magnetization vector - returns full <M_x>, <M_y>, <M_z> for each spin
+std::vector<spin3d> MonteCarloSimulation::get_magnetization_vector_per_spin() {
+    int num_spins = unit_cell.num_spins();
+    std::vector<spin3d> mag_vec_per_spin(num_spins, spin3d(0.0, 0.0, 0.0));
+    
+    for (int x = 1; x <= lattice_size; x++) {
+        for (int y = 1; y <= lattice_size; y++) {
+            for (int z = 1; z <= lattice_size; z++) {
+                for (int spin_id = 0; spin_id < num_spins; spin_id++) {
+                    const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                    int idx = flatten_index(x, y, z, spin_id);
+                    
+                    if (spin.spin_type == SpinType::ISING) {
+                        // Ising: only z-component
+                        mag_vec_per_spin[spin_id].z += ising_spins[idx] * spin.spin_magnitude;
+                    } else {
+                        // Heisenberg: full vector
+                        mag_vec_per_spin[spin_id].x += heisenberg_x[idx] * spin.spin_magnitude;
+                        mag_vec_per_spin[spin_id].y += heisenberg_y[idx] * spin.spin_magnitude;
+                        mag_vec_per_spin[spin_id].z += heisenberg_z[idx] * spin.spin_magnitude;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Normalize by number of unit cells
+    int total_cells = lattice_size * lattice_size * lattice_size;
+    for (int i = 0; i < num_spins; i++) {
+        mag_vec_per_spin[i].x /= total_cells;
+        mag_vec_per_spin[i].y /= total_cells;
+        mag_vec_per_spin[i].z /= total_cells;
+    }
+    
+    return mag_vec_per_spin;
+}
+
+// Average magnitude of magnetization per spin type: <|M|>
+std::vector<double> MonteCarloSimulation::get_magnetization_magnitude_per_spin() {
+    int num_spin_types = unit_cell.num_spins();
+    std::vector<double> magnitudes(num_spin_types, 0.0);
+    int total_cells = lattice_size * lattice_size * lattice_size;
+    
+    // For each spin type, compute average magnitude across all unit cells
+    for (int spin_id = 0; spin_id < num_spin_types; spin_id++) {
+        const SpinInfo& spin = unit_cell.get_spin(spin_id);
+        double sum_magnitude = 0.0;
+        
+        for (int x = 1; x <= lattice_size; x++) {
+            for (int y = 1; y <= lattice_size; y++) {
+                for (int z = 1; z <= lattice_size; z++) {
+                    int idx = flatten_index(x, y, z, spin_id);
+                    
+                    if (spin.spin_type == SpinType::ISING) {
+                        sum_magnitude += std::abs(ising_spins[idx]);
+                    } else {
+                        // For Heisenberg, compute magnitude of this spin's vector
+                        double mag = sqrt(heisenberg_x[idx]*heisenberg_x[idx] + 
+                                        heisenberg_y[idx]*heisenberg_y[idx] + 
+                                        heisenberg_z[idx]*heisenberg_z[idx]);
+                        sum_magnitude += mag;
+                    }
+                }
+            }
+        }
+        
+        magnitudes[spin_id] = sum_magnitude / total_cells;
+    }
+    
+    return magnitudes;
+}
+
+// Compute spin correlations for multi-walker simulations
+// For Ising spins: returns <S_0 * S_i> where S_0 is first Ising spin (pairwise correlation)
+// For Heisenberg spins: returns <S_0 · S_i> where S_0 is first Heisenberg spin (dot product)
+// This is direction-independent and safe to average across walkers.
+std::vector<double> MonteCarloSimulation::get_spin_correlation_with_first() {
+    int num_spin_types = unit_cell.num_spins();
+    std::vector<double> correlations(num_spin_types, 0.0);
+    int total_cells = lattice_size * lattice_size * lattice_size;
+    
+    // Find first Ising and first Heisenberg spin for correlation reference
+    int first_ising_idx = -1;
+    int first_heisenberg_idx = -1;
+    for (int i = 0; i < num_spin_types; i++) {
+        if (unit_cell.get_spin(i).spin_type == SpinType::ISING && first_ising_idx == -1) {
+            first_ising_idx = i;
+        }
+        if (unit_cell.get_spin(i).spin_type == SpinType::HEISENBERG && first_heisenberg_idx == -1) {
+            first_heisenberg_idx = i;
+        }
+    }
+    
+    // For each spin type i, compute appropriate measurement
+    for (int spin_i = 0; spin_i < num_spin_types; spin_i++) {
+        const SpinInfo& spin_i_info = unit_cell.get_spin(spin_i);
+        
+        if (spin_i_info.spin_type == SpinType::ISING) {
+            // For Ising: compute correlation <S_0 * S_i> with first Ising spin
+            // This remains direction-independent across walkers (product of ±1 values)
+            if (first_ising_idx == -1) {
+                correlations[spin_i] = 0.0;
+                continue;
+            }
+            
+            double sum_products = 0.0;
+            int num_pairs = 0;
+            
+            // Loop over all positions for first Ising spin
+            for (int x0 = 1; x0 <= lattice_size; x0++) {
+                for (int y0 = 1; y0 <= lattice_size; y0++) {
+                    for (int z0 = 1; z0 <= lattice_size; z0++) {
+                        int idx_0 = flatten_index(x0, y0, z0, first_ising_idx);
+                        double s0 = ising_spins[idx_0];
+                        
+                        // Loop over all positions for spin_i
+                        for (int xi = 1; xi <= lattice_size; xi++) {
+                            for (int yi = 1; yi <= lattice_size; yi++) {
+                                for (int zi = 1; zi <= lattice_size; zi++) {
+                                    int idx_i = flatten_index(xi, yi, zi, spin_i);
+                                    double si = ising_spins[idx_i];
+                                    
+                                    sum_products += s0 * si;
+                                    num_pairs++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            correlations[spin_i] = sum_products / num_pairs;
+            
+        } else {
+            // For Heisenberg: compute correlation with first Heisenberg spin
+            if (first_heisenberg_idx == -1) {
+                // Should not happen, but handle gracefully
+                correlations[spin_i] = 0.0;
+                continue;
+            }
+            
+            double sum_dot_products = 0.0;
+            int num_pairs = 0;
+            
+            // Loop over all positions for first Heisenberg spin
+            for (int x0 = 1; x0 <= lattice_size; x0++) {
+                for (int y0 = 1; y0 <= lattice_size; y0++) {
+                    for (int z0 = 1; z0 <= lattice_size; z0++) {
+                        int idx_0 = flatten_index(x0, y0, z0, first_heisenberg_idx);
+                        
+                        // Get first Heisenberg spin components
+                        double s0_x = heisenberg_x[idx_0];
+                        double s0_y = heisenberg_y[idx_0];
+                        double s0_z = heisenberg_z[idx_0];
+                        
+                        // Loop over all positions for spin_i
+                        for (int xi = 1; xi <= lattice_size; xi++) {
+                            for (int yi = 1; yi <= lattice_size; yi++) {
+                                for (int zi = 1; zi <= lattice_size; zi++) {
+                                    int idx_i = flatten_index(xi, yi, zi, spin_i);
+                                    
+                                    // Get spin_i components
+                                    double si_x = heisenberg_x[idx_i];
+                                    double si_y = heisenberg_y[idx_i];
+                                    double si_z = heisenberg_z[idx_i];
+                                    
+                                    // Compute dot product
+                                    double dot_product = s0_x * si_x + s0_y * si_y + s0_z * si_z;
+                                    
+                                    sum_dot_products += dot_product;
+                                    num_pairs++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Average over all pairs
+            correlations[spin_i] = sum_dot_products / num_pairs;
+        }
+    }
+    
+    return correlations;
+}
+
+// Absolute magnetization
 
 // Absolute magnetization
 double MonteCarloSimulation::get_absolute_magnetization() {

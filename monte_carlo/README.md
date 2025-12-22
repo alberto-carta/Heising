@@ -2,35 +2,43 @@
 
 A Monte Carlo simulation engine for magnetic systems supporting Ising and Heisenberg spins with multi-atom unit cells and flexible coupling configurations.
 
-## TODO
+**Features:**
+- Support for Ising and Heisenberg spins
+- Multi-atom unit cells with flexible coupling matrices
+- TOML-based configuration system
+- **MPI parallelization for large-scale simulations** (optional)
 
+## TODO
 
 * Implement Kugel-Khomskii hamiltonian
 * Consider parallel tempering for improved sampling at low temperatures.
-* We can try and have a loom at ways to treat phonons in some effective manner,
+* We can try and have a look at ways to treat phonons in some effective manner,
   perhaps via using some phonon density of states to sample from at each step.
 
   So normal metropolis update for MC step is 
     if $\Delta E < 0$ accept else accept with probability $exp(-\Delta E / kT)$
   New way would be:
-    if $\Delta E < 0$% accept with probability proportional to the phonon DOS $D(\Delta E)$ at energy $\Delta E$
+    if $\Delta E < 0$ accept with probability proportional to the phonon DOS $D(\Delta E)$ at energy $\Delta E$
     else accept with probability $exp(-\Delta E / kT) \cdot D(\Delta E)$
-
-* Implement and design MPI parallelization
-
-
 
 ## Requirements
 
+### Core Requirements
 - **C++11 compatible compiler** (g++, clang++)
 - **Eigen3 library** (linear algebra)
 - **toml11 library** (header-only, included in project)
 - **Standard math library** (libm)
 
+### Optional: MPI for Parallel Execution
+- **OpenMPI** or **MPICH** (for parallel simulations with multiple walkers)
+
 ### Ubuntu/Debian Installation
 ```bash
 sudo apt update
 sudo apt install build-essential libeigen3-dev
+
+# Optional: for MPI support
+sudo apt install libopenmpi-dev openmpi-bin
 ```
 
 ### Other Linux Distributions
@@ -41,33 +49,62 @@ sudo apt install build-essential libeigen3-dev
 ## Quick Start
 
 ### 1. Build the Code
+
+Build both serial and MPI versions (if MPI is available):
 ```bash
 make
 ```
 
-This compiles the simulation executable: `build/generic_simulation`
+The Makefile automatically detects if MPI is installed:
+- **Serial version**: `build/generic_simulation` (always built)
+- **MPI version**: `build/generic_simulation_mpi` (built only if MPI is detected)
+
+To build only the serial version:
+```bash
+make serial
+```
+
+To check MPI availability and get usage help:
+```bash
+make mpi-help
+```
 
 ### 2. Run a Simulation
 
-The simulation is configured using TOML files. Two examples are provided:
+#### Serial Execution
 
-#### Example 1: Ising Ferromagnet
+The simulation is configured using TOML files. Examples are provided:
+
+**Example 1: Ising Ferromagnet**
 ```bash
 ./build/generic_simulation examples/ising_ferromagnet/simulation.toml
 ```
 
-This runs a 3D Ising model with ferromagnetic nearest-neighbor interactions. The simulation:
-- Uses an 8×8×8 lattice
-- Scans temperatures from 6.0 down to 0.5 (step: 0.2)
-- Performs 8,000 warmup steps and 80,000 measurement steps per temperature
-- Outputs data to `ising_ferromagnet_ising_system.dat`
-
-#### Example 2: Heisenberg Ferromagnet
+**Example 2: Heisenberg Ferromagnet**
 ```bash
 ./build/generic_simulation examples/heisenberg_ferromagnet/simulation.toml
 ```
 
-This runs a 3D Heisenberg model with ferromagnetic interactions. Configuration similar to Ising but with continuous 3D spins instead of discrete ±1 spins.
+#### MPI Parallel Execution
+
+Run with multiple independent walkers for better statistics:
+
+```bash
+# Run with 4 independent walkers
+mpirun -np 4 ./build/generic_simulation_mpi examples/heisenberg_ferromagnet/simulation.toml
+
+# Run with 8 walkers
+mpirun -np 8 ./build/generic_simulation_mpi examples/heisenberg_ferromagnet/simulation.toml
+```
+
+**Key features of MPI parallelization:**
+- Each MPI rank runs an independent Monte Carlo walker with different random seed
+- Statistics are accumulated across all walkers for improved sampling
+- Between temperature steps, configurations are averaged across walkers
+- Master rank (rank 0) handles all file I/O
+- Ideal for embarrassingly parallel Monte Carlo simulations
+
+**Performance tip:** Use 4-16 walkers for typical simulations. More walkers = better statistics with linear scaling.
 
 ### 3. Analyze Results
 
@@ -86,25 +123,59 @@ monte_carlo/
 ├── src/                    # Core implementation
 │   ├── simulation_engine.cpp
 │   ├── spin_operations.cpp
-│   └── random.cpp
+│   ├── random.cpp
+│   ├── mpi_wrapper.cpp     # MPI parallelization support
+│   └── io/
+│       └── configuration_parser.cpp
 ├── include/                # Header files
 │   ├── simulation_engine.h
 │   ├── multi_atom.h
+│   ├── multi_spin.h
 │   ├── spin_operations.h
 │   ├── spin_types.h
-│   └── random.h
+│   ├── random.h
+│   ├── mpi_wrapper.h       # MPI interface
+│   └── io/
+│       ├── configuration_parser.h
+│       └── config_types.h
 ├── tests/                  # Unit tests
 │   └── unit_tests.cpp
 ├── benchmarks/             # Performance tests
 │   └── performance_test.cpp
-├── examples/               # Example programs
-│   └── main.cpp
-├── build/                  # Compiled objects (created during build)
-└── analysis_tools/         # Python analysis scripts
-    ├── analyze_mc.py
-    ├── analyze_results.py
-    └── plots/
+├── examples/               # Example configurations
+│   ├── heisenberg_ferromagnet/
+│   ├── ising_ferromagnet/
+│   └── mixed_system/
+├── build/                  # Compiled binaries
+│   ├── generic_simulation      # Serial version
+│   └── generic_simulation_mpi  # MPI version (if available)
+└── Makefile
 ```
+
+## MPI Parallelization Details
+
+### Architecture
+
+The MPI implementation uses a **walker-based parallelization** strategy:
+
+1. **Independent Walkers**: Each MPI rank runs a completely independent Monte Carlo simulation
+2. **Different Seeds**: Each walker uses a rank-specific random seed for independent sampling
+3. **Statistics Accumulation**: All observables are summed across ranks using `MPI_Reduce`
+4. **Configuration Averaging**: Between temperature steps, spin configurations are averaged across all walkers using `MPI_Allreduce`
+5. **Master I/O**: Only rank 0 writes output files
+
+### Key Benefits
+
+- **Embarrassingly parallel**: Perfect for Monte Carlo with linear scaling
+- **Better statistics**: Multiple independent walkers improve sampling
+- **Minimal code changes**: Core simulation engine remains unchanged
+- **Automatic fallback**: Same code compiles to serial version without MPI
+
+### Implementation Files
+
+- `include/mpi_wrapper.h`, `src/mpi_wrapper.cpp`: MPI abstraction layer
+- `generic_simulation.cpp`: MPI-aware main program with `#ifdef USE_MPI` guards
+- `Makefile`: Automatic MPI detection and conditional compilation
 
 ## Usage Examples
 

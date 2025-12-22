@@ -78,7 +78,16 @@ public:
     double get_energy();
     double get_magnetization();
     double get_absolute_magnetization();
-    std::vector<double> get_magnetization_per_spin();  // Returns magnetization for each spin in unit cell
+    std::vector<double> get_magnetization_per_spin();  // Returns z-component magnetization for each spin
+    std::vector<spin3d> get_magnetization_vector_per_spin();  // Returns full vector <M> for each spin
+    std::vector<double> get_magnetization_magnitude_per_spin();  // Returns <|M|> for each spin type
+    
+    // Spin correlation measurements (for multi-walker simulations)
+    // For Ising spins: returns <S_0 * S_i> where S_0 is first Ising spin (pairwise product)
+    // For Heisenberg spins: returns <S_0 · S_i> where S_0 is first Heisenberg spin (dot product)
+    // This is direction-independent and can be averaged across walkers with different ordering directions
+    std::vector<double> get_spin_correlation_with_first();
+    
     double get_acceptance_rate() const;
     void reset_statistics();
     
@@ -87,6 +96,17 @@ public:
     void set_ising_spin(int x, int y, int z, int spin_id, int spin);
     spin3d get_heisenberg_spin(int x, int y, int z, int spin_id) const;
     void set_heisenberg_spin(int x, int y, int z, int spin_id, const spin3d& spin);
+    
+    // Configuration extraction for MPI averaging
+    const Eigen::ArrayXd& get_ising_array() const { return ising_spins; }
+    const Eigen::ArrayXd& get_heisenberg_x_array() const { return heisenberg_x; }
+    const Eigen::ArrayXd& get_heisenberg_y_array() const { return heisenberg_y; }
+    const Eigen::ArrayXd& get_heisenberg_z_array() const { return heisenberg_z; }
+    
+    Eigen::ArrayXd& get_ising_array_mutable() { return ising_spins; }
+    Eigen::ArrayXd& get_heisenberg_x_array_mutable() { return heisenberg_x; }
+    Eigen::ArrayXd& get_heisenberg_y_array_mutable() { return heisenberg_y; }
+    Eigen::ArrayXd& get_heisenberg_z_array_mutable() { return heisenberg_z; }
     
     // Direct energy calculation for testing
     double calculate_local_energy(int x, int y, int z, int spin_id) {

@@ -1,20 +1,17 @@
 /*
- * Generic Monte Carlo Simulation Program
+ * Heising Main - MPI Monte Carlo Simulation Program
  * 
  * Reads configuration from TOML files and performs Monte Carlo
- * simulations on arbitrary magnetic systems
+ * simulations on arbitrary magnetic systems using MPI parallelization
  * 
- * Supports MPI parallelization when compiled with USE_MPI flag
+ * Requires MPI for execution
  */
 
 #include "../include/simulation_engine.h"
 #include "../include/multi_spin.h" 
 #include "../include/random.h"
 #include "../include/io/configuration_parser.h"
-
-#ifdef USE_MPI
 #include "../include/mpi_wrapper.h"
-#endif
 
 #include <iostream>
 #include <iomanip>
@@ -105,6 +102,7 @@ CouplingMatrix create_couplings_from_config(const std::vector<IO::ExchangeCoupli
  * Run single temperature simulation
  */
 void run_single_temperature(const IO::SimulationConfig& config) {
+    std::cout << std::fixed << std::setprecision(4);
     std::cout << "Running single temperature simulation at T = " << config.temperature.value << std::endl;
     
     // Create simulation objects from configuration
@@ -252,7 +250,6 @@ void load_configuration(MonteCarloSimulation& sim,
     }
 }
 
-#ifdef USE_MPI
 /**
  * Average simulation configuration across all MPI ranks
  * This ensures all walkers start from the same averaged state at the next temperature
@@ -286,208 +283,16 @@ void average_configuration_mpi(MonteCarloSimulation& sim,
         heis_z_array[i] = heis_z_vec[i];
     }
 }
-#endif
 
-/**
- * Run temperature scan simulation
- */
-void run_temperature_scan(const IO::SimulationConfig& config) {
-    std::cout << "Running temperature scan simulation" << std::endl;
-    std::cout << "Temperature range: " << config.temperature.max_temp << " to " 
-              << config.temperature.min_temp << " (step: " << config.temperature.temp_step << ")" << std::endl;
-    
-    // Create simulation objects from configuration
-    UnitCell unit_cell = create_unit_cell_from_config(config.species);
-    CouplingMatrix couplings = create_couplings_from_config(config.couplings, config.species, config.lattice_size);
-    
-    int total_spins = config.lattice_size * config.lattice_size * config.lattice_size * config.species.size();
-    
-    // Determine output file name based on system type
-    std::string output_file = config.output.directory + "/" + config.output.base_name + "_";
-    
-    // Simple heuristic to determine system type for file naming
-    bool has_ising = false, has_heisenberg = false;
-    for (const auto& species : config.species) {
-        if (species.spin_type == SpinType::ISING) has_ising = true;
-        if (species.spin_type == SpinType::HEISENBERG) has_heisenberg = true;
-    }
-    
-    output_file += ".observables";
-    
-    std::ofstream outfile(output_file);
-    outfile << "# Monte Carlo simulation results" << std::endl;
-    outfile << "# System: ";
-    for (const auto& species : config.species) {
-        outfile << species.name << "(" << (species.spin_type == SpinType::ISING ? "Ising" : "Heisenberg") << ") ";
-    }
-    outfile << std::endl;
-    outfile << "# Lattice: " << config.lattice_size << "³" << std::endl;
-    outfile << "# Columns: T Energy/spin Magnetization |Magnetization| SpecificHeat Susceptibility AcceptanceRate";
-    for (const auto& species : config.species) {
-        outfile << " Mx[" << species.name << "] My[" << species.name << "] Mz[" << species.name << "]";
-    }
-    // Add correlation columns for spin-spin correlations with first species
-    for (size_t i = 0; i < config.species.size(); i++) {
-        outfile << " <M(" << config.species[0].name << ")·M(" << config.species[i].name << ")>";
-    }
-    outfile << std::endl;
-    outfile << std::fixed << std::setprecision(8);
-    
-    std::cout << "T          Energy/spin   Magnetization |Magnetization| SpecificHeat  Susceptibility AcceptanceRate";
-    for (const auto& species : config.species) {
-        std::cout << " Mx[" << species.name << "] My[" << species.name << "] Mz[" << species.name << "]";
-    }
-    // Add correlation columns
-    for (size_t i = 0; i < config.species.size(); i++) {
-        std::cout << " <M(" << config.species[0].name << ")·M(" << config.species[i].name << ")>";
-    }
-    std::cout << std::endl;
-    std::cout << "---------- ------------- ------------- ------------- ------------- -------------- --------------";
-    for (size_t i = 0; i < config.species.size(); i++) {
-        std::cout << " -------------- -------------- --------------";
-    }
-    std::cout << std::endl;
-    
-    // Storage for configuration continuity
-    ConfigurationSnapshot saved_config;
-    bool first_temperature = true;
-    
-    for (double T = config.temperature.max_temp; T >= config.temperature.min_temp; T -= config.temperature.temp_step) {
-        std::cout << "\\nT = " << std::fixed << std::setprecision(2) << T << std::endl;
-        
-        MonteCarloSimulation sim(unit_cell, couplings, config.lattice_size, T);
-        
-        if (first_temperature) {
-            std::cout << "  Initializing with ferromagnetic ground state (first temperature)..." << std::endl;
-            sim.initialize_lattice();
-            first_temperature = false;
-        } else {
-            std::cout << "  Loading configuration from previous temperature..." << std::endl;
-            sim.initialize_lattice();  // Initialize arrays first
-            load_configuration(sim, config.species, config.lattice_size, saved_config);
-            std::cout << "  Configuration loaded successfully." << std::endl;
-        }
-        
-        // Warmup
-        for (int sweep = 0; sweep < config.monte_carlo.warmup_steps; sweep++) {
-            for (int attempt = 0; attempt < total_spins; attempt++) {
-                sim.run_monte_carlo_step();
-            }
-            if ((sweep + 1) % 1000 == 0) {
-                std::cout << "  Warmup: " << (sweep + 1) << "/" << config.monte_carlo.warmup_steps 
-                          << " (" << std::setprecision(1) << (100.0 * (sweep + 1)) / config.monte_carlo.warmup_steps << "%)" << std::endl;
-            }
-        }
-        
-        // Measurement
-        sim.reset_statistics();
-        double total_energy = 0.0, total_energy_sq = 0.0;
-        double total_magnetization = 0.0, total_magnetization_sq = 0.0;
-        std::vector<spin3d> total_mag_vec_per_spin(config.species.size(), spin3d(0.0, 0.0, 0.0));
-        std::vector<double> total_correlations(config.species.size(), 0.0);
-        int num_samples = 0;
-        
-        for (int sweep = 0; sweep < config.monte_carlo.measurement_steps; sweep++) {
-            for (int attempt = 0; attempt < total_spins; attempt++) {
-                sim.run_monte_carlo_step();
-            }
-            
-            if (sweep % config.monte_carlo.sampling_frequency == 0) {
-                double energy = sim.get_energy();
-                double magnetization = sim.get_magnetization();
-                std::vector<spin3d> mag_vectors = sim.get_magnetization_vector_per_spin();
-                std::vector<double> correlations = sim.get_spin_correlation_with_first();
-                
-                total_energy += energy;
-                total_energy_sq += energy * energy;
-                total_magnetization += magnetization;
-                total_magnetization_sq += magnetization * magnetization;
-                for (size_t i = 0; i < mag_vectors.size(); i++) {
-                    total_mag_vec_per_spin[i].x += mag_vectors[i].x;
-                    total_mag_vec_per_spin[i].y += mag_vectors[i].y;
-                    total_mag_vec_per_spin[i].z += mag_vectors[i].z;
-                    total_correlations[i] += correlations[i];
-                }
-                num_samples++;
-            }
-            
-            if ((sweep + 1) % 10000 == 0) {
-                std::cout << "  Measurement: " << (sweep + 1) << "/" << config.monte_carlo.measurement_steps 
-                          << " (" << std::setprecision(1) << (100.0 * (sweep + 1)) / config.monte_carlo.measurement_steps << "%)" << std::endl;
-            }
-        }
-        
-        // Calculate results
-        double avg_energy_per_spin = total_energy / num_samples / total_spins;
-        double avg_energy_sq_per_spin = total_energy_sq / num_samples / (total_spins * total_spins);
-        double avg_magnetization_per_spin = total_magnetization / num_samples / total_spins;
-        double avg_magnetization_sq_per_spin = total_magnetization_sq / num_samples / (total_spins * total_spins);
-        
-        std::vector<spin3d> avg_mag_vec_per_spin(config.species.size());
-        std::vector<double> avg_correlations(config.species.size());
-        for (size_t i = 0; i < config.species.size(); i++) {
-            avg_mag_vec_per_spin[i].x = total_mag_vec_per_spin[i].x / num_samples;
-            avg_mag_vec_per_spin[i].y = total_mag_vec_per_spin[i].y / num_samples;
-            avg_mag_vec_per_spin[i].z = total_mag_vec_per_spin[i].z / num_samples;
-            avg_correlations[i] = total_correlations[i] / num_samples;
-        }
-        
-        double specific_heat = (avg_energy_sq_per_spin - avg_energy_per_spin * avg_energy_per_spin) / (T * T);
-        double susceptibility = (avg_magnetization_sq_per_spin - avg_magnetization_per_spin * avg_magnetization_per_spin) / T;
-        double accept_rate = sim.get_acceptance_rate();
-        
-        // Output
-        std::cout << std::fixed << std::setprecision(8);
-        std::cout << std::setw(10) << T << " "
-                  << std::setw(13) << avg_energy_per_spin << " "
-                  << std::setw(13) << avg_magnetization_per_spin << " "
-                  << std::setw(13) << specific_heat << " "
-                  << std::setw(14) << susceptibility << " "
-                  << std::setw(14) << std::setprecision(6) << accept_rate;
-        for (const auto& mag : avg_mag_vec_per_spin) {
-            std::cout << " " << std::setw(14) << std::setprecision(8) << mag.x
-                      << " " << std::setw(14) << std::setprecision(8) << mag.y
-                      << " " << std::setw(14) << std::setprecision(8) << mag.z;
-        }
-        for (const auto& corr : avg_correlations) {
-            std::cout << " " << std::setw(14) << std::setprecision(8) << corr;
-        }
-        std::cout << std::endl;
-        
-        outfile << std::fixed << std::setprecision(8);
-        outfile << std::setw(10) << T << " "
-                << std::setw(13) << avg_energy_per_spin << " "
-                << std::setw(13) << avg_magnetization_per_spin << " "
-                << std::setw(13) << specific_heat << " "
-                << std::setw(14) << susceptibility << " "
-                << std::setw(14) << std::setprecision(6) << accept_rate;
-        for (const auto& mag : avg_mag_vec_per_spin) {
-            outfile << " " << std::setw(14) << std::setprecision(8) << mag.x
-                    << " " << std::setw(14) << std::setprecision(8) << mag.y
-                    << " " << std::setw(14) << std::setprecision(8) << mag.z;
-        }
-        for (const auto& corr : avg_correlations) {
-            outfile << " " << std::setw(14) << std::setprecision(8) << corr;
-        }
-        outfile << std::endl;
-        
-        // Save configuration for next temperature step
-        std::cout << "  Saving configuration for next temperature step..." << std::endl;
-        save_configuration(sim, config.species, config.lattice_size, saved_config);
-    }
-    
-    outfile.close();
-    std::cout << "\\nResults saved to: " << output_file << std::endl;
-}
+// Serial version removed - MPI is now required for all simulations
 
-#ifdef USE_MPI
 /**
  * MPI-parallel temperature scan simulation
  * Each rank runs an independent walker, results are accumulated on rank 0
  */
-void run_temperature_scan_mpi(const IO::SimulationConfig& config,
-                              MPIEnvironment& mpi_env,
-                              MPIAccumulator& mpi_accumulator) {
+void run_temperature_scan(const IO::SimulationConfig& config,
+                          MPIEnvironment& mpi_env,
+                          MPIAccumulator& mpi_accumulator) {
     int rank = mpi_env.get_rank();
     int num_ranks = mpi_env.get_num_ranks();
     
@@ -529,7 +334,7 @@ void run_temperature_scan_mpi(const IO::SimulationConfig& config,
             if (species.spin_type == SpinType::HEISENBERG) has_heisenberg = true;
         }
         
-        output_file += ".observables";
+        output_file += "observables.out";
         
         outfile.open(output_file);
         outfile << "# Monte Carlo simulation results (MPI parallel, " << num_ranks << " walkers)" << std::endl;
@@ -540,28 +345,49 @@ void run_temperature_scan_mpi(const IO::SimulationConfig& config,
         outfile << std::endl;
         outfile << "# Lattice: " << config.lattice_size << "³" << std::endl;
         outfile << "# Columns: T Energy/spin Magnetization SpecificHeat Susceptibility AcceptanceRate";
-        for (const auto& species : config.species) {
-            outfile << " Mx[" << species.name << "] My[" << species.name << "] Mz[" << species.name << "]";
-        }
+        // Commented out: Mx, My, Mz per species (use correlations instead)
+        // for (const auto& species : config.species) {
+        //     outfile << " Mx[" << species.name << "] My[" << species.name << "] Mz[" << species.name << "]";
+        // }
         // NOTE: Correlations are direction-independent and safe to average across walkers
+        // Find first Ising and first Heisenberg spins for correlation labels
+        std::string first_ising_name = "", first_heis_name = "";
+        for (const auto& sp : config.species) {
+            if (sp.spin_type == SpinType::ISING && first_ising_name.empty()) {
+                first_ising_name = sp.name;
+            }
+            if (sp.spin_type == SpinType::HEISENBERG && first_heis_name.empty()) {
+                first_heis_name = sp.name;
+            }
+        }
         for (size_t i = 0; i < config.species.size(); i++) {
-            outfile << " <M(" << config.species[0].name << ")·M(" << config.species[i].name << ")>";
+            if (config.species[i].spin_type == SpinType::ISING) {
+                outfile << " <" << first_ising_name << "*" << config.species[i].name << ">";
+            } else {
+                outfile << " <" << first_heis_name << "·" << config.species[i].name << ">";
+            }
         }
         outfile << std::endl;
         outfile << std::fixed << std::setprecision(8);
         
         std::cout << "T          Energy/spin   Magnetization SpecificHeat  Susceptibility AcceptanceRate";
-        for (const auto& species : config.species) {
-            std::cout << " Mx[" << species.name << "] My[" << species.name << "] Mz[" << species.name << "]";
-        }
+        // Commented out: Mx, My, Mz per species (use correlations instead)
+        // for (const auto& species : config.species) {
+        //     std::cout << " Mx[" << species.name << "] My[" << species.name << "] Mz[" << species.name << "]";
+        // }
         for (size_t i = 0; i < config.species.size(); i++) {
-            std::cout << " <M(" << config.species[0].name << ")·M(" << config.species[i].name << ")>";
+            if (config.species[i].spin_type == SpinType::ISING) {
+                std::cout << " <" << first_ising_name << "*" << config.species[i].name << ">";
+            } else {
+                std::cout << " <" << first_heis_name << "·" << config.species[i].name << ">";
+            }
         }
         std::cout << std::endl;
         std::cout << "---------- ------------- ------------- ------------- -------------- --------------";
-        for (size_t i = 0; i < config.species.size(); i++) {
-            std::cout << " -------------- -------------- --------------";
-        }
+        // Commented out separator for Mx,My,Mz columns
+        // for (size_t i = 0; i < config.species.size(); i++) {
+        //     std::cout << " -------------- -------------- --------------";
+        // }
         for (size_t i = 0; i < config.species.size(); i++) {
             std::cout << " --------------";
         }
@@ -706,11 +532,12 @@ void run_temperature_scan_mpi(const IO::SimulationConfig& config,
                       << std::setw(13) << specific_heat << " "
                       << std::setw(14) << susceptibility << " "
                       << std::setw(14) << std::setprecision(6) << avg_accept_rate;
-            for (const auto& mag : avg_mag_vec_per_spin) {
-                std::cout << " " << std::setw(14) << std::setprecision(8) << mag.x
-                          << " " << std::setw(14) << std::setprecision(8) << mag.y
-                          << " " << std::setw(14) << std::setprecision(8) << mag.z;
-            }
+            // Commented out: Mx, My, Mz per species output (use correlations instead)
+            // for (const auto& mag : avg_mag_vec_per_spin) {
+            //     std::cout << " " << std::setw(14) << std::setprecision(8) << mag.x
+            //               << " " << std::setw(14) << std::setprecision(8) << mag.y
+            //               << " " << std::setw(14) << std::setprecision(8) << mag.z;
+            // }
             for (const auto& corr : avg_correlations) {
                 std::cout << " " << std::setw(14) << std::setprecision(8) << corr;
             }
@@ -724,11 +551,12 @@ void run_temperature_scan_mpi(const IO::SimulationConfig& config,
                     << std::setw(13) << specific_heat << " "
                     << std::setw(14) << susceptibility << " "
                     << std::setw(14) << std::setprecision(6) << avg_accept_rate;
-            for (const auto& mag : avg_mag_vec_per_spin) {
-                outfile << " " << std::setw(14) << std::setprecision(8) << mag.x
-                        << " " << std::setw(14) << std::setprecision(8) << mag.y
-                        << " " << std::setw(14) << std::setprecision(8) << mag.z;
-            }
+            // Commented out: Mx, My, Mz per species output (use correlations instead)
+            // for (const auto& mag : avg_mag_vec_per_spin) {
+            //     outfile << " " << std::setw(14) << std::setprecision(8) << mag.x
+            //             << " " << std::setw(14) << std::setprecision(8) << mag.y
+            //             << " " << std::setw(14) << std::setprecision(8) << mag.z;
+            // }
             for (const auto& corr : avg_correlations) {
                 outfile << " " << std::setw(14) << std::setprecision(8) << corr;
             }
@@ -744,11 +572,9 @@ void run_temperature_scan_mpi(const IO::SimulationConfig& config,
         std::cout << "\\nResults saved to: " << output_file << std::endl;
     }
 }
-#endif
 
 int main(int argc, char* argv[]) {
-#ifdef USE_MPI
-    // Initialize MPI environment
+    // Initialize MPI environment (required for this executable)
     MPIEnvironment mpi_env(argc, argv);
     MPIAccumulator mpi_accumulator(mpi_env);
     
@@ -766,11 +592,6 @@ int main(int argc, char* argv[]) {
         std::cout << "  MPI Monte Carlo Simulation (" << mpi_env.get_num_ranks() << " ranks)" << std::endl;
         std::cout << "========================================" << std::endl;
     }
-#else
-    std::cout << "========================================" << std::endl;
-    std::cout << "    Generic Monte Carlo Simulation     " << std::endl;
-    std::cout << "========================================" << std::endl;
-#endif
     
     // Parse command line arguments
     std::string config_file = "simulation.toml";
@@ -779,58 +600,42 @@ int main(int argc, char* argv[]) {
     }
     
     try {
-#ifdef USE_MPI
         // Only master loads and prints configuration initially
         if (mpi_env.is_master()) {
-#endif
             // Load configuration
             std::cout << "Loading configuration from: " << config_file << std::endl;
-#ifdef USE_MPI
         }
         
         // All ranks load configuration
-#endif
         IO::SimulationConfig config = IO::ConfigurationParser::load_configuration(config_file);
         
         // Set global random seed (will be modified per rank in MPI version)
         seed = config.monte_carlo.seed;
         
-#ifdef USE_MPI
         if (mpi_env.is_master()) {
-#endif
-        // Print configuration summary
-        std::cout << "\\nConfiguration summary:" << std::endl;
-        std::cout << "  Lattice size: " << config.lattice_size << "³" << std::endl;
-        std::cout << "  Species: ";
-        for (const auto& species : config.species) {
-            std::cout << species.name << "(" << (species.spin_type == SpinType::ISING ? "I" : "H") << ") ";
+            // Print configuration summary
+            std::cout << "\\nConfiguration summary:" << std::endl;
+            std::cout << "  Lattice size: " << config.lattice_size << "³" << std::endl;
+            std::cout << "  Species: ";
+            for (const auto& species : config.species) {
+                std::cout << species.name << "(" << (species.spin_type == SpinType::ISING ? "I" : "H") << ") ";
+            }
+            std::cout << std::endl;
+            std::cout << "  Couplings: " << config.couplings.size() << " exchange interactions" << std::endl;
+            std::cout << "  Monte Carlo: " << config.monte_carlo.warmup_steps << " warmup + " 
+                      << config.monte_carlo.measurement_steps << " measurement steps" << std::endl;
+            std::cout << std::endl;
         }
-        std::cout << std::endl;
-        std::cout << "  Couplings: " << config.couplings.size() << " exchange interactions" << std::endl;
-        std::cout << "  Monte Carlo: " << config.monte_carlo.warmup_steps << " warmup + " 
-                  << config.monte_carlo.measurement_steps << " measurement steps" << std::endl;
-        std::cout << std::endl;
-#ifdef USE_MPI
-        }
-#endif
         
-        // Run simulation based on type and MPI availability
-#ifdef USE_MPI
+        // Run simulation
         if (config.temperature.type == IO::TemperatureConfig::SINGLE) {
             // For single temperature, still use serial version for now
             if (mpi_env.is_master()) {
                 run_single_temperature(config);
             }
         } else {
-            run_temperature_scan_mpi(config, mpi_env, mpi_accumulator);
+            run_temperature_scan(config, mpi_env, mpi_accumulator);
         }
-#else
-        if (config.temperature.type == IO::TemperatureConfig::SINGLE) {
-            run_single_temperature(config);
-        } else {
-            run_temperature_scan(config);
-        }
-#endif
         
     } catch (const IO::ConfigurationError& e) {
         std::cerr << "Configuration error: " << e.what() << std::endl;
@@ -840,7 +645,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-#ifdef USE_MPI
     // Restore stdout for non-master ranks before MPI finalize
     if (!mpi_env.is_master() && cout_backup) {
         std::cout.rdbuf(cout_backup);
@@ -848,10 +652,7 @@ int main(int argc, char* argv[]) {
     }
     
     if (mpi_env.is_master()) {
-#endif
         std::cout << "\\nSimulation completed successfully!" << std::endl;
-#ifdef USE_MPI
     }
-#endif
     return 0;
 }

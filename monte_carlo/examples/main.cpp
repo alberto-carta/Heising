@@ -90,7 +90,7 @@ void run_ising_sweep(const SimParams& params) {
         avg_energy /= total_spins;
         avg_magnetization /= total_spins;
         
-        std::cout << "T=" << std::setw(5) << std::setprecision(2) << T 
+        std::cout << "T=" << std::setw(5) << std::setprecision(4) << T 
                   << " E=" << std::setw(8) << std::setprecision(4) << avg_energy
                   << " M=" << std::setw(8) << std::setprecision(4) << avg_magnetization
                   << " A=" << std::setw(6) << std::setprecision(1) << accept_rate * 100 << "%" << std::endl;
@@ -144,7 +144,7 @@ void run_heisenberg_sweep(const SimParams& params) {
         avg_energy /= total_spins;
         avg_magnetization /= total_spins;
         
-        std::cout << "T=" << std::setw(5) << std::setprecision(2) << T 
+        std::cout << "T=" << std::setw(5) << std::setprecision(4) << T 
                   << " E=" << std::setw(8) << std::setprecision(4) << avg_energy
                   << " M=" << std::setw(8) << std::setprecision(4) << avg_magnetization
                   << " A=" << std::setw(6) << std::setprecision(1) << accept_rate * 100 << "%" << std::endl;
