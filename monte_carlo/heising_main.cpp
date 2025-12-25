@@ -58,8 +58,9 @@ void run_single_temperature(const IO::SimulationConfig& config) {
     // Create simulation objects from configuration
     UnitCell unit_cell = create_unit_cell_from_config(config.species);
     CouplingMatrix couplings = create_couplings_from_config(config.couplings, config.species, config.lattice_size);
+    std::optional<KK_Matrix> kk_matrix = create_kk_matrix_from_config(config.kk_couplings, unit_cell, config.lattice_size);
     
-    MonteCarloSimulation sim(unit_cell, couplings, config.lattice_size, config.temperature.value);
+    MonteCarloSimulation sim(unit_cell, couplings, config.lattice_size, config.temperature.value, kk_matrix);
     initialize_simulation(sim, config.initialization);
     
     int total_spins = config.lattice_size * config.lattice_size * config.lattice_size * config.species.size();
@@ -150,6 +151,7 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     // Create simulation objects from configuration (each rank creates its own)
     UnitCell unit_cell = create_unit_cell_from_config(config.species);
     CouplingMatrix couplings = create_couplings_from_config(config.couplings, config.species, config.lattice_size);
+    std::optional<KK_Matrix> kk_matrix = create_kk_matrix_from_config(config.kk_couplings, unit_cell, config.lattice_size);
     
     int total_spins = config.lattice_size * config.lattice_size * config.lattice_size * config.species.size();
     
@@ -299,7 +301,7 @@ void run_temperature_scan(const IO::SimulationConfig& config,
         long int rank_seed = get_rank_seed(config.monte_carlo.seed, rank);
         seed = rank_seed;
         
-        MonteCarloSimulation sim(unit_cell, couplings, config.lattice_size, T);
+        MonteCarloSimulation sim(unit_cell, couplings, config.lattice_size, T, kk_matrix);
         
         if (first_temperature) {
             if (rank == 0) {

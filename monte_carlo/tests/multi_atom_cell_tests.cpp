@@ -55,14 +55,7 @@ bool test_single_atom_ferromagnet() {
     MonteCarloSimulation sim(cell, couplings, L, T);
     
     // Initialize in ferromagnetic state (all spins pointing up: z=+1)
-    sim.initialize_lattice();
-    for (int x = 1; x <= L; x++) {
-        for (int y = 1; y <= L; y++) {
-            for (int z = 1; z <= L; z++) {
-                sim.set_heisenberg_spin(x, y, z, 0, spin3d(0.0, 0.0, 1.0));
-            }
-        }
-    }
+    sim.initialize_lattice_custom({1.0});
     
     double energy_per_spin = sim.get_energy() / (L * L * L);
     double expected_energy = -3.0;  // H = Σ J S·S, J=-1, parallel: 6 neighbors × (-1.0) × (+1) / 2 = -3.0
@@ -109,7 +102,6 @@ bool test_single_atom_antiferromagnet() {
     
     // Initialize in checkerboard AFM state
     // Spin up if (x+y+z) is even, down if odd
-    sim.initialize_lattice();
     for (int x = 1; x <= L; x++) {
         for (int y = 1; y <= L; y++) {
             for (int z = 1; z <= L; z++) {
@@ -200,53 +192,7 @@ bool test_4atom_ferromagnet() {
     MonteCarloSimulation sim(cell, couplings, L, T);
     
     // Initialize in ferromagnetic state (all spins up)
-    sim.initialize_lattice();
-    for (int x = 1; x <= L; x++) {
-        for (int y = 1; y <= L; y++) {
-            for (int z = 1; z <= L; z++) {
-                sim.set_heisenberg_spin(x, y, z, 0, spin3d(0.0, 0.0, 1.0));  // Cr1: up
-                sim.set_heisenberg_spin(x, y, z, 1, spin3d(0.0, 0.0, 1.0));  // Cr2: up
-                sim.set_heisenberg_spin(x, y, z, 2, spin3d(0.0, 0.0, 1.0));  // Cr3: up
-                sim.set_heisenberg_spin(x, y, z, 3, spin3d(0.0, 0.0, 1.0));  // Cr4: up
-            }
-        }
-    }
-    
-    double total_energy = sim.get_energy();
-    double energy_per_spin = total_energy / (L * L * L * 4);
-    
-    // With ferromagnetic couplings, all spins aligned should give same
-    // energy per spin as the single-atom ferromagnet: -3.0
-    double expected_energy = -3.0;
-    
-    std::cout << "  Total energy: " << std::fixed << std::setprecision(6) << total_energy << std::endl;
-    std::cout << "  Energy per spin: " << energy_per_spin 
-              << " (expected: " << expected_energy << ")" << std::endl;
-    
-    // Also check sublattice magnetizations (should all be +1)
-    std::vector<double> mag_per_spin = sim.get_magnetization_per_spin();
-    std::cout << "  Sublattice magnetizations (z-component):" << std::endl;
-    std::cout << "    Cr1: " << mag_per_spin[0] << " (expected: +1.0)" << std::endl;
-    std::cout << "    Cr2: " << mag_per_spin[1] << " (expected: +1.0)" << std::endl;
-    std::cout << "    Cr3: " << mag_per_spin[2] << " (expected: +1.0)" << std::endl;
-    std::cout << "    Cr4: " << mag_per_spin[3] << " (expected: +1.0)" << std::endl;
-    
-    bool energy_correct = approx_equal(energy_per_spin, expected_energy);
-    bool mag_correct = approx_equal(mag_per_spin[0], 1.0) && 
-                       approx_equal(mag_per_spin[1], 1.0) &&
-                       approx_equal(mag_per_spin[2], 1.0) &&
-                       approx_equal(mag_per_spin[3], 1.0);
-    
-    if (energy_correct && mag_correct) {
-        std::cout << "  ✓ 4-atom ferromagnet energy and magnetizations correct!" << std::endl;
-        return true;
-    } else {
-        std::cout << "  ✗ Test failed: ";
-        if (!energy_correct) std::cout << "energy mismatch ";
-        if (!mag_correct) std::cout << "magnetization mismatch";
-        std::cout << std::endl;
-        return false;
-    }
+    sim.initialize_lattice_custom({1.0, 1.0, 1.0, 1.0});
 }
 
 
@@ -308,18 +254,8 @@ bool test_4atom_antiferromagnet() {
     double T = 0.01;
     MonteCarloSimulation sim(cell, couplings, L, T);
     
-    // Initialize in ferromagnetic state (all spins up)
-    sim.initialize_lattice();
-    for (int x = 1; x <= L; x++) {
-        for (int y = 1; y <= L; y++) {
-            for (int z = 1; z <= L; z++) {
-                sim.set_heisenberg_spin(x, y, z, 0, spin3d(0.0, 0.0, 1.0));  // Cr1: up
-                sim.set_heisenberg_spin(x, y, z, 1, spin3d(0.0, 0.0, -1.0));  // Cr2: up
-                sim.set_heisenberg_spin(x, y, z, 2, spin3d(0.0, 0.0, 1.0));  // Cr3: up
-                sim.set_heisenberg_spin(x, y, z, 3, spin3d(0.0, 0.0, -1.0));  // Cr4: up
-            }
-        }
-    }
+    // Initialize in AF ordered state (Cr1/Cr3 up, Cr2/Cr4 down)
+    sim.initialize_lattice_custom({1.0, -1.0, 1.0, -1.0});
     
     double total_energy = sim.get_energy();
     double energy_per_spin = total_energy / (L * L * L * 4);

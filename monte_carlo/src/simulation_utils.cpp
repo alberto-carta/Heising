@@ -78,6 +78,84 @@ CouplingMatrix create_couplings_from_config(const std::vector<IO::ExchangeCoupli
     return coupling_matrix;
 }
 
+std::optional<KK_Matrix> create_kk_matrix_from_config(const std::vector<IO::KKCoupling>& kk_couplings,
+                                                        const UnitCell& unit_cell,
+                                                        int lattice_size) {
+    // Return nullopt if no KK couplings
+    if (kk_couplings.empty()) {
+        return std::nullopt;
+    }
+    
+    int num_sites = unit_cell.get_num_sites();
+    
+    // Determine maximum KK coupling offset
+    int max_offset = 1;
+    for (const auto& kk : kk_couplings) {
+        int max_abs = std::max({std::abs(kk.cell_offset[0]),
+                                std::abs(kk.cell_offset[1]),
+                                std::abs(kk.cell_offset[2])});
+        max_offset = std::max(max_offset, max_abs);
+    }
+    
+    KK_Matrix kk_matrix;
+    kk_matrix.initialize(unit_cell, max_offset);
+    
+    // For each KK coupling, we need to determine which site each species belongs to
+    // Assumption: Species at same position belong to the same site
+    std::map<std::string, int> species_to_site;
+    for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
+        const SpinInfo& spin = unit_cell.get_spin(spin_id);
+        species_to_site[spin.label] = spin.site_id;
+    }
+    
+    // Add all KK couplings with range checking
+    int truncated_kk = 0;
+    for (const auto& kk : kk_couplings) {
+        // Get site IDs for the two species
+        auto it1 = species_to_site.find(kk.species1_name);
+        auto it2 = species_to_site.find(kk.species2_name);
+        
+        if (it1 == species_to_site.end()) {
+            std::cerr << "ERROR: Species '" << kk.species1_name << "' in KK coupling not found" << std::endl;
+            continue;
+        }
+        if (it2 == species_to_site.end()) {
+            std::cerr << "ERROR: Species '" << kk.species2_name << "' in KK coupling not found" << std::endl;
+            continue;
+        }
+        
+        int site1_id = it1->second;
+        int site2_id = it2->second;
+        
+        // Check if coupling extends beyond reasonable simulation range
+        int max_abs = std::max({std::abs(kk.cell_offset[0]),
+                                std::abs(kk.cell_offset[1]),
+                                std::abs(kk.cell_offset[2])});
+        
+        if (max_abs >= lattice_size / 2) {
+            std::cout << "WARNING: KK coupling " << kk.species1_name << "-" << kk.species2_name
+                      << " at offset (" << kk.cell_offset[0] << "," << kk.cell_offset[1] 
+                      << "," << kk.cell_offset[2] << ") extends beyond half lattice size ("
+                      << lattice_size/2 << "). Truncating." << std::endl;
+            truncated_kk++;
+            continue;
+        }
+        
+        // Add KK coupling for specified unit cell offset
+        kk_matrix.set_coupling(site1_id, site2_id,
+                              kk.cell_offset[0],
+                              kk.cell_offset[1],
+                              kk.cell_offset[2],
+                              kk.K);
+    }
+    
+    if (truncated_kk > 0) {
+        std::cout << "WARNING: " << truncated_kk << " KK couplings were truncated due to range limits." << std::endl;
+    }
+    
+    return kk_matrix;
+}
+
 void average_configuration_mpi(MonteCarloSimulation& sim,
                                const std::vector<IO::MagneticSpecies>& species,
                                MPIAccumulator& mpi_accumulator) {

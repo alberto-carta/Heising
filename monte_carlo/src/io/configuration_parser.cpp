@@ -99,12 +99,21 @@ SimulationConfig ConfigurationParser::load_configuration(const std::string& toml
         config.species = parse_species_file(species_path);
         config.couplings = parse_couplings_file(couplings_path);
         
+        // Parse KK file if specified
+        if (!config.kugel_khomskii_file.empty()) {
+            std::string kk_path = (config.kugel_khomskii_file[0] == '/') ? config.kugel_khomskii_file : toml_dir + "/" + config.kugel_khomskii_file;
+            config.kk_couplings = parse_kk_file(kk_path);
+        }
+        
         // Validate the complete configuration
         validate_configuration(config);
         
         std::cout << "Configuration loaded successfully:" << std::endl;
         std::cout << "  - " << config.species.size() << " magnetic species" << std::endl;
         std::cout << "  - " << config.couplings.size() << " exchange couplings" << std::endl;
+        if (!config.kk_couplings.empty()) {
+            std::cout << "  - " << config.kk_couplings.size() << " Kugel-Khomskii couplings" << std::endl;
+        }
         std::cout << "  - Lattice size: " << config.lattice_size << "³" << std::endl;
         
         return config;
@@ -347,6 +356,45 @@ std::vector<ExchangeCoupling> ConfigurationParser::parse_couplings_file(const st
     return couplings;
 }
 
+std::vector<KKCoupling> ConfigurationParser::parse_kk_file(const std::string& kk_file) {
+    std::vector<KKCoupling> kk_couplings;
+    
+    std::ifstream file(kk_file);
+    if (!file.is_open()) {
+        throw ConfigurationError("Cannot open Kugel-Khomskii file: " + kk_file);
+    }
+    
+    std::string line;
+    int line_number = 0;
+    
+    while (std::getline(file, line)) {
+        line_number++;
+        
+        // Skip comments and empty lines
+        if (line.empty() || line[0] == '#') continue;
+        
+        std::istringstream iss(line);
+        std::string species1, species2;
+        int rx, ry, rz;
+        double K;
+        
+        if (!(iss >> species1 >> species2 >> rx >> ry >> rz >> K)) {
+            throw ConfigurationError("Invalid KK file format at line " + 
+                                     std::to_string(line_number) + ": " + line);
+        }
+        
+        kk_couplings.emplace_back(species1, species2, rx, ry, rz, K);
+    }
+    
+    if (kk_couplings.empty()) {
+        throw ConfigurationError("No KK couplings found in file: " + kk_file);
+    }
+    
+    std::cout << "  Loaded " << kk_couplings.size() << " Kugel-Khomskii couplings from " << kk_file << std::endl;
+    
+    return kk_couplings;
+}
+
 void ConfigurationParser::validate_configuration(const SimulationConfig& config) {
     // Check that all coupling species exist in the species list
     for (const auto& coupling : config.couplings) {
@@ -364,6 +412,25 @@ void ConfigurationParser::validate_configuration(const SimulationConfig& config)
         if (!found_species2) {
             throw ConfigurationError("Species '" + coupling.species2_name + 
                                      "' in couplings not found in species file");
+        }
+    }
+    
+    // Check that all KK coupling species exist in the species list
+    for (const auto& kk : config.kk_couplings) {
+        bool found_species1 = false, found_species2 = false;
+        
+        for (const auto& species : config.species) {
+            if (species.name == kk.species1_name) found_species1 = true;
+            if (species.name == kk.species2_name) found_species2 = true;
+        }
+        
+        if (!found_species1) {
+            throw ConfigurationError("Species '" + kk.species1_name + 
+                                     "' in KK couplings not found in species file");
+        }
+        if (!found_species2) {
+            throw ConfigurationError("Species '" + kk.species2_name + 
+                                     "' in KK couplings not found in species file");
         }
     }
     

@@ -1,0 +1,4 @@
+# Antiferromagnetic couplings (J > 0)
+Ni  Ni  1  0  0  1.0
+Ni  Ni  0  1  0  1.0
+Ni  Ni  0  0  1  1.0

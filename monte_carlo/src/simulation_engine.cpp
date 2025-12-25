@@ -42,6 +42,15 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
     
     if (kk_matrix.has_value()) {
         std::cout << "Kugel-Khomskii coupling is enabled." << std::endl;
+        kk_matrix->print_summary();
+        // Set energy dispatch pointer to KK version
+        energy_dispatch_ptr = &MonteCarloSimulation::calculate_local_energy_implementation<true>;
+    }
+
+    else {
+        std::cout << "No Kugel-Khomskii coupling." << std::endl;
+        // Set energy dispatch pointer to non-KK version
+        energy_dispatch_ptr = &MonteCarloSimulation::calculate_local_energy_implementation<false>;
     }
     
     // Allocate memory
@@ -143,7 +152,27 @@ void MonteCarloSimulation::update_tracked_observables() {
 }
 
 // Local energy calculation 
-double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, int spin_id) {
+template <bool use_kk>
+double MonteCarloSimulation::calculate_local_energy_implementation(int x, int y, int z, int spin_id) {
+    double energy = 0.0;
+    
+    // Standard coupling contribution (J_ij * S_i · S_j)
+    energy += compute_coupling_contribution(x, y, z, spin_id);
+    
+    // Kugel-Khomskii coupling (if enabled)
+    // This depends only on site_i and relative distances, not absolute position
+    if constexpr (use_kk) {
+        const SpinInfo& spin_i = unit_cell.get_spin(spin_id);
+        int site_i = spin_i.site_id;
+        double kk_energy = compute_kk_contribution(x, y, z, site_i);
+        energy += kk_energy;
+    }
+
+    return energy;
+}
+
+// Standard coupling contribution to local energy (J_ij * S_i · S_j)
+double MonteCarloSimulation::compute_coupling_contribution(int x, int y, int z, int spin_id) {
     double energy = 0.0;
     const SpinInfo& spin_i = unit_cell.get_spin(spin_id);
     int idx_i = flatten_index(x, y, z, spin_id);
@@ -153,10 +182,10 @@ double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, in
     for (int dx = -max_range; dx <= max_range; dx++) {
         for (int dy = -max_range; dy <= max_range; dy++) {
             for (int dz = -max_range; dz <= max_range; dz++) {
-                // Skip if no coupling
+                // Loop over all spins in neighbor unit cells
                 for (int spin_j = 0; spin_j < unit_cell.num_spins(); spin_j++) {
                     double J_ij = coupling_matrix.get_coupling(spin_id, spin_j, dx, dy, dz);
-                    if (J_ij == 0.0) continue;
+                    if (J_ij == 0.0) continue; // Skip if no coupling
                     
                     // Calculate neighbor position with periodic boundaries
                     int nx = x + dx;
@@ -198,6 +227,94 @@ double MonteCarloSimulation::calculate_local_energy_fast(int x, int y, int z, in
     }
     
     return energy;
+}
+
+// Kugel-Khomskii contribution to local energy at site_i
+// K(site_i, site_j, dx, dy, dz) * (S_i · S_j) * (τ_i * τ_j)
+// where S is Heisenberg spin and τ is Ising spin at each site
+// Note: This only depends on site_i and relative unit cell distances, not on absolute (x,y,z)
+double MonteCarloSimulation::compute_kk_contribution(int x, int y, int z, int site_i) {
+    double kk_energy = 0.0;
+    
+    if (!kk_matrix.has_value()) return 0.0;
+    
+    // Get spins at site_i - need exactly 2 (1 Heisenberg + 1 Ising)
+    std::vector<int> spins_i = unit_cell.get_spins_at_site(site_i);
+    if (spins_i.size() != 2) return 0.0;  // KK requires exactly 2 spins per site
+    
+    // Identify Heisenberg and Ising spins at site_i
+    int heis_i = -1, ising_i = -1;
+    for (int spin_id : spins_i) {
+        const SpinInfo& spin = unit_cell.get_spin(spin_id);
+        if (spin.spin_type == SpinType::HEISENBERG) heis_i = spin_id;
+        else if (spin.spin_type == SpinType::ISING) ising_i = spin_id;
+    }
+    
+    if (heis_i == -1 || ising_i == -1) return 0.0;  // Need both types
+    
+    // Get indices for site_i spins
+    int idx_heis_i = flatten_index(x, y, z, heis_i);
+    int idx_ising_i = flatten_index(x, y, z, ising_i);
+    
+    // Loop over all possible neighbor offsets
+    int max_range = kk_matrix->get_max_offset();
+    int num_sites = unit_cell.get_num_sites();
+    
+    for (int dx = -max_range; dx <= max_range; dx++) {
+        for (int dy = -max_range; dy <= max_range; dy++) {
+            for (int dz = -max_range; dz <= max_range; dz++) {
+                
+                // Calculate neighbor position with periodic boundaries
+                int nx = x + dx;
+                int ny = y + dy;
+                int nz = z + dz;
+                
+                if (nx < 1) nx += lattice_size;
+                if (nx > lattice_size) nx -= lattice_size;
+                if (ny < 1) ny += lattice_size;
+                if (ny > lattice_size) ny -= lattice_size;
+                if (nz < 1) nz += lattice_size;
+                if (nz > lattice_size) nz -= lattice_size;
+                
+                // Loop over all neighbor sites
+                for (int site_j = 0; site_j < num_sites; site_j++) {
+                    double K_ij = kk_matrix->get_coupling(site_i, site_j, dx, dy, dz);
+                    if (K_ij == 0.0) continue;
+                    
+                    // Get spins at site_j
+                    std::vector<int> spins_j = unit_cell.get_spins_at_site(site_j);
+                    if (spins_j.size() != 2) continue;
+                    
+                    // Identify Heisenberg and Ising spins at site_j
+                    int heis_j = -1, ising_j = -1;
+                    for (int spin_id : spins_j) {
+                        const SpinInfo& spin = unit_cell.get_spin(spin_id);
+                        if (spin.spin_type == SpinType::HEISENBERG) heis_j = spin_id;
+                        else if (spin.spin_type == SpinType::ISING) ising_j = spin_id;
+                    }
+                    
+                    if (heis_j == -1 || ising_j == -1) continue;
+                    
+                    // Get array indices for site_j spins
+                    int idx_heis_j = flatten_index(nx, ny, nz, heis_j);
+                    int idx_ising_j = flatten_index(nx, ny, nz, ising_j);
+                    
+                    // Compute (S_i · S_j) - dot product of Heisenberg spins
+                    double S_dot_S = heisenberg_x[idx_heis_i] * heisenberg_x[idx_heis_j] +
+                                     heisenberg_y[idx_heis_i] * heisenberg_y[idx_heis_j] +
+                                     heisenberg_z[idx_heis_i] * heisenberg_z[idx_heis_j];
+                    
+                    // Compute (τ_i * τ_j) - product of Ising spins
+                    double tau_i_tau_j = ising_spins[idx_ising_i] * ising_spins[idx_ising_j];
+                    
+                    // KK contribution: K * (S_i · S_j) * (τ_i * τ_j)
+                    kk_energy += K_ij * S_dot_S * tau_i_tau_j;
+                }
+            }
+        }
+    }
+    
+    return kk_energy;
 }
 
 // Fast Monte Carlo step
@@ -301,7 +418,7 @@ double MonteCarloSimulation::get_energy() {
         for (int y = 1; y <= lattice_size; y++) {
             for (int z = 1; z <= lattice_size; z++) {
                 for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
-                    total_energy += calculate_local_energy_fast(x, y, z, spin_id);
+                    total_energy += calculate_local_energy_fast(x, y, z, spin_id); // this is double counting the KK contribution
                 }
             }
         }

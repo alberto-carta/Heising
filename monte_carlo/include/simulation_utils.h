@@ -33,6 +33,18 @@ CouplingMatrix create_couplings_from_config(const std::vector<IO::ExchangeCoupli
                                             int lattice_size);
 
 /**
+ * Create KK matrix from configuration with range checking
+ * 
+ * @param kk_couplings Vector of KK couplings from configuration
+ * @param unit_cell UnitCell object (for site mapping)
+ * @param lattice_size Size of the lattice for range checking
+ * @return Initialized KK_Matrix object, or std::nullopt if no KK couplings
+ */
+std::optional<KK_Matrix> create_kk_matrix_from_config(const std::vector<IO::KKCoupling>& kk_couplings,
+                                                       const UnitCell& unit_cell,
+                                                       int lattice_size);
+
+/**
  * Average simulation configuration across all MPI ranks
  * This ensures all walkers start from the same averaged state at the next temperature
  * 

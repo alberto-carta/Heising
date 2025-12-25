@@ -42,6 +42,26 @@ struct ExchangeCoupling {
 };
 
 /**
+ * Represents a Kugel-Khomskii coupling between two sites
+ * KK coupling: K * (S_i · S_j) * (τ_i * τ_j)
+ * where S is Heisenberg spin and τ is Ising spin at each site
+ */
+struct KKCoupling {
+    std::string species1_name;  // First species name (identifies site)
+    std::string species2_name;  // Second species name (identifies site)
+    int cell_offset[3];         // Unit cell offset (Rx, Ry, Rz)
+    double K;                   // KK coupling strength
+    
+    KKCoupling(const std::string& s1, const std::string& s2, 
+               int rx, int ry, int rz, double coupling)
+        : species1_name(s1), species2_name(s2), K(coupling) {
+        cell_offset[0] = rx;
+        cell_offset[1] = ry;
+        cell_offset[2] = rz;
+    }
+};
+
+/**
  * Monte Carlo simulation parameters
  */
 struct MonteCarloConfig {
@@ -156,6 +176,7 @@ struct SimulationConfig {
     // Parsed data
     std::vector<MagneticSpecies> species;
     std::vector<ExchangeCoupling> couplings;
+    std::vector<KKCoupling> kk_couplings;
 };
 
 } // namespace IO

@@ -59,6 +59,14 @@ private:
         }
         return -1;
     }
+
+    // Given a spin index, return its site ID
+    int get_site_id_of_spin(int spin_index) const {
+        if (spin_index < 0 || spin_index >= static_cast<int>(spins.size())) {
+            return -1;
+        }
+        return spins[spin_index].site_id;
+    }
     
 public:
     UnitCell() {}
@@ -94,6 +102,7 @@ public:
         }
         return sites[site_id].spin_indices;
     }
+
     
     // Check if a site has mixed spin types
     bool site_has_mixed_types(int site_id) const {
@@ -336,6 +345,31 @@ public:
     }
     
     int get_num_sites() const { return num_sites; }
+
+    int get_max_offset() const { return max_offset; }
+
+    void print_summary() const {
+        std::cout << "KK Coupling matrix summary:" << std::endl;
+        std::cout << "  Sites: " << num_sites << std::endl;
+        std::cout << "  Max offset range: ±" << max_offset << std::endl;
+        
+        // Count non-zero couplings
+        int non_zero = 0;
+        for (int i = 0; i < num_sites; i++) {
+            for (int j = 0; j < num_sites; j++) {
+                for (int dx = -max_offset; dx <= max_offset; dx++) {
+                    for (int dy = -max_offset; dy <= max_offset; dy++) {
+                        for (int dz = -max_offset; dz <= max_offset; dz++) {
+                            if (get_coupling(i, j, dx, dy, dz) != 0.0) {
+                                non_zero++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        std::cout << "  Non-zero KK couplings: " << non_zero << std::endl;
+    }
 };
 
 

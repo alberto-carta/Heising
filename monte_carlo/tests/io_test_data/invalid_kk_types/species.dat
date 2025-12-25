@@ -1,0 +1,3 @@
+# Invalid KK: Both spins are Heisenberg (need 1 Heisenberg + 1 Ising)
+H1  Heisenberg  0.0  0.0  0.0
+H2  Heisenberg  0.0  0.0  0.0

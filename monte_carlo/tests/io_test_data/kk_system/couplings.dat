@@ -1,0 +1,8 @@
+# Standard J couplings
+H  H  1  0  0  -0.5
+H  H  0  1  0  -0.5
+H  H  0  0  1  -0.5
+
+I  I  1  0  0  -0.3
+I  I  0  1  0  -0.3
+I  I  0  0  1  -0.3

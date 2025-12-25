@@ -47,6 +47,11 @@ private:
     static std::vector<ExchangeCoupling> parse_couplings_file(const std::string& couplings_file);
     
     /**
+     * Parse Kugel-Khomskii coupling definition file
+     */
+    static std::vector<KKCoupling> parse_kk_file(const std::string& kk_file);
+    
+    /**
      * Validate that all coupling species exist in species list
      */
     static void validate_configuration(const SimulationConfig& config);

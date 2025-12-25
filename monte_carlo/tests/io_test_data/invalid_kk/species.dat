@@ -1,0 +1,4 @@
+# Invalid KK: 3 spins at same site (KK requires exactly 2)
+H1  Heisenberg  0.0  0.0  0.0
+H2  Heisenberg  0.0  0.0  0.0
+I1  Ising       0.0  0.0  0.0

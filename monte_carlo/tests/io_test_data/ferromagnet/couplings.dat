@@ -1,0 +1,6 @@
+# Ferromagnetic nearest-neighbor couplings (J < 0)
+# Species1  Species2  Rx  Ry  Rz  J
+
+Fe  Fe  1  0  0  -1.0
+Fe  Fe  0  1  0  -1.0
+Fe  Fe  0  0  1  -1.0

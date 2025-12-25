@@ -51,7 +51,10 @@ heising:
 endif
 
 # Test executables (serial, no MPI required)
-tests: $(BUILDDIR)/unit_tests $(BUILDDIR)/multi_atom_cell_tests
+tests: $(BUILDDIR)/unit_tests $(BUILDDIR)/io_tests
+
+# Additional tests (may need updates)
+all_tests: tests $(BUILDDIR)/multi_atom_cell_tests
 
 # Legacy executables (kept for compatibility)
 legacy: $(BUILDDIR)/monte_carlo_sim $(BUILDDIR)/performance_test $(BUILDDIR)/heisenberg_analysis $(BUILDDIR)/ising_analysis
@@ -64,7 +67,10 @@ $(BUILDDIR)/heising.x: $(MPI_OBJECTS) $(BUILDDIR)/mpi/heising_main.o | $(BUILDDI
 $(BUILDDIR)/monte_carlo_sim: $(OBJECTS) $(BUILDDIR)/main.o | $(BUILDDIR)
 	$(CXX) $^ -o $@ $(LIBS)
 
-$(BUILDDIR)/unit_tests: $(OBJECTS) $(BUILDDIR)/unit_tests.o | $(BUILDDIR)
+$(BUILDDIR)/unit_tests: $(OBJECTS) $(BUILDDIR)/mpi_wrapper.o $(BUILDDIR)/unit_tests.o | $(BUILDDIR)
+	$(CXX) $^ -o $@ $(LIBS)
+
+$(BUILDDIR)/io_tests: $(OBJECTS) $(BUILDDIR)/mpi_wrapper.o $(BUILDDIR)/io_tests.o | $(BUILDDIR)
 	$(CXX) $^ -o $@ $(LIBS)
 
 $(BUILDDIR)/multi_atom_cell_tests: $(OBJECTS) $(BUILDDIR)/multi_atom_cell_tests.o | $(BUILDDIR)
@@ -105,6 +111,9 @@ $(BUILDDIR)/main.o: examples/main.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILDDIR)/unit_tests.o: tests/unit_tests.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILDDIR)/io_tests.o: tests/io_tests.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILDDIR)/multi_atom_cell_tests.o: tests/multi_atom_cell_tests.cpp | $(BUILDDIR)

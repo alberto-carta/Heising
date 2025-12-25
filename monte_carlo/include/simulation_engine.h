@@ -51,7 +51,26 @@ private:
     }
     
     // Fast energy calculation - direct array access
-    double calculate_local_energy_fast(int x, int y, int z, int spin_id);
+    // double calculate_local_energy_fast(int x, int y, int z, int spin_id);
+
+
+    // Template, the bool tells the compiler to
+    // compile two versions of the function, one if KK is used, one if not
+    template <bool use_kk>
+    double calculate_local_energy_implementation(int x, int y, int z, int spin_id);
+    
+    // Standard coupling contribution helper (J_ij * S_i · S_j)
+    double compute_coupling_contribution(int x, int y, int z, int spin_id);
+    
+    // Kugel-Khomskii contribution helper (depends only on site_i and relative distances)
+    double compute_kk_contribution(int x, int y, int z, int site_i);
+
+    // Create a new type of function pointer (necessary if inside class) that will point to the correct version
+    // double (MonteCarloSimulation::*energy_func_ptr)(int, int, int, int);
+    typedef double (MonteCarloSimulation::*EnergyFuncPtr)(int, int, int, int);
+    // create the pointer that will be used to call the correct function
+    EnergyFuncPtr energy_dispatch_ptr;
+
     
     // Fast Metropolis test
     inline bool metropolis_test_fast(double energy_change) {
@@ -126,6 +145,12 @@ public:
     // Metropolis test for testing
     bool metropolis_test(double energy_change) {
         return metropolis_test_fast(energy_change);
+    }
+
+
+    // 
+    inline double calculate_local_energy_fast(int x, int y, int z, int spin_id) {
+        return (this->*energy_dispatch_ptr)(x, y, z, spin_id);
     }
 };
 

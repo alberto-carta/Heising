@@ -1,0 +1,23 @@
+# Ferromagnetic test configuration
+[simulation]
+type = "single_temperature"
+seed = -12345
+
+[lattice]
+size = 4
+
+[monte_carlo]
+warmup_steps = 1
+measurement_steps = 1
+sampling_frequency = 1
+
+[temperature]
+value = 1.0
+
+[input_files]
+species = "species.dat"
+couplings = "couplings.dat"
+
+[output]
+base_name = "test"
+directory = "."

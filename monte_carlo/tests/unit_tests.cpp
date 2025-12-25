@@ -48,7 +48,7 @@ bool test_lattice_creation() {
     
     // Create simulation with KK coupling
     MonteCarloSimulation sim(cell, couplings, 3, 1.0, kk_couplings);
-    sim.initialize_lattice();
+    sim.initialize_lattice_custom(std::vector<double>{1.0, 1.0});  
     
     // Verify KK coupling is present
     if (!sim.has_kugel_khomskii()) {
@@ -89,7 +89,7 @@ bool test_energy_calculation() {
     CouplingMatrix couplings = create_nn_couplings(1, -1.0);  // FM coupling
     
     MonteCarloSimulation sim(cell, couplings, 2, 1.0);  // 2x2x2 = 8 spins
-    sim.initialize_lattice();
+    sim.initialize_lattice_custom(std::vector<double>(cell.num_spins(), 1.0));
     
     // Set all spins to point up (0, 0, 1) for known energy
     spin3d up_spin(0, 0, 1);
@@ -316,19 +316,110 @@ bool test_coupling_matrix_scaling() {
     }
 }
 
+// Test 6: Kugel-Khomskii energy calculation
+bool test_kk_energy_calculation() {
+    std::cout << "\n=== Test 6: Kugel-Khomskii Energy Calculation ===" << std::endl;
+    
+    // Create 2-spin unit cell (Heisenberg + Ising at same site)
+    UnitCell cell;
+    cell.add_spin("H", SpinType::HEISENBERG, 1.0, 0.0, 0.0, 0.0);  // Site 0
+    cell.add_spin("I", SpinType::ISING, 1.0, 0.0, 0.0, 0.0);        // Site 0
+    
+    // Standard J couplings
+    CouplingMatrix couplings;
+    couplings.initialize(2, 1);
+    couplings.set_nn_couplings(0, 0, -1.0);  // H-H FM (all NN)
+    couplings.set_nn_couplings(1, 1, -1.0);  // I-I FM (all NN)
+    
+    // KK coupling: K * (S_i · S_j) * (τ_i * τ_j)
+    KK_Matrix kk_couplings;
+    kk_couplings.initialize(cell, 1);
+    // Set KK couplings in all NN directions
+    kk_couplings.set_coupling(0, 0,  1,  0,  0, 0.5);  // +x
+    kk_couplings.set_coupling(0, 0, -1,  0,  0, 0.5);  // -x
+    kk_couplings.set_coupling(0, 0,  0,  1,  0, 0.5);  // +y
+    kk_couplings.set_coupling(0, 0,  0, -1,  0, 0.5);  // -y
+    kk_couplings.set_coupling(0, 0,  0,  0,  1, 0.5);  // +z
+    kk_couplings.set_coupling(0, 0,  0,  0, -1, 0.5);  // -z
+    
+    // Create 2x2x2 lattice with KK
+    MonteCarloSimulation sim(cell, couplings, 2, 1.0, kk_couplings);
+    
+    // Test case 1: All spins aligned (FM state)
+    // H = (0,0,1), I = +1
+    sim.initialize_lattice_custom({1.0, 1.0});
+    double E_aligned = sim.get_energy();
+    
+    // For 2x2x2 lattice with 2 spins per cell:
+    // - 8 unit cells total, 16 spins (8 H + 8 I)
+    // - Each H spin has 3 NN: E_J_H = -1.0 * 3 * 8 / 2 = -12
+    // - Each I spin has 3 NN: E_J_I = -0.5 * 3 * 8 / 2 = -6
+    // - Each site has 3 NN sites: E_KK = -0.2 * (1*1) * (+1*+1) * 3 * 8 / 2 = -2.4
+    // Total: -12 - 6 - 2.4 = -20.4
+    
+    double expected_E_aligned = -20.4;
+    
+    if (!approx_equal(E_aligned, expected_E_aligned, 0.01)) {
+        std::cout << "✗ Aligned state energy incorrect: expected " << expected_E_aligned 
+                  << ", got " << E_aligned << std::endl;
+        return false;
+    }
+    
+    // Test case 2: Flip one Ising spin (breaks KK alignment)
+    // This should increase energy because KK coupling is FM
+    sim.set_ising_spin(1, 1, 1, 1, -1);  // Flip I spin at (1,1,1)
+    double E_flipped = sim.get_energy();
+    
+    // Flipping one I spin:
+    // - Changes I-I energy: was -0.5 * 3, now mixed (some parallel, some antiparallel)
+    //   Δ = 2 * 0.5 * 3 = 3.0 (approximately, depends on neighbors)
+    // - Changes KK energy: was -0.2 * (1) * (+1) for 3 bonds, now -0.2 * (1) * (-1)
+    //   Δ_KK = 2 * 0.2 * (S·S) * 3 = 1.2 per bond direction
+    // Energy should increase
+    
+    if (E_flipped <= E_aligned) {
+        std::cout << "✗ Flipping spin with FM KK should increase energy" << std::endl;
+        std::cout << "  E_aligned=" << E_aligned << ", E_flipped=" << E_flipped << std::endl;
+        return false;
+    }
+    
+    // Test case 3: Verify KK contribution is computed
+    // Create system without KK for comparison
+    MonteCarloSimulation sim_no_kk(cell, couplings, 2, 1.0);
+    sim_no_kk.initialize_lattice_custom({1.0, 1.0});
+    double E_no_kk = sim_no_kk.get_energy();
+    
+    // E_aligned should be lower than E_no_kk by the KK contribution
+    double kk_contribution = E_aligned - E_no_kk;
+    double expected_kk = -2.4;
+    
+    if (!approx_equal(kk_contribution, expected_kk, 0.01)) {
+        std::cout << "✗ KK contribution incorrect: expected " << expected_kk 
+                  << ", got " << kk_contribution << std::endl;
+        std::cout << "  E_with_kk=" << E_aligned << ", E_no_kk=" << E_no_kk << std::endl;
+        return false;
+    }
+    
+    std::cout << "✓ KK energy: E_aligned=" << E_aligned << ", E_no_kk=" << E_no_kk 
+              << ", KK_contrib=" << kk_contribution << std::endl;
+    
+    return true;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << "   COMPREHENSIVE MONTE CARLO TESTS     " << std::endl;
     std::cout << "========================================" << std::endl;
     
     int passed = 0;
-    int total = 5;
+    int total = 6;
     
     if (test_lattice_creation()) passed++;
     if (test_energy_calculation()) passed++;
     if (test_metropolis_algorithm()) passed++;
     if (test_mixed_spin_types()) passed++;
     if (test_coupling_matrix_scaling()) passed++;
+    if (test_kk_energy_calculation()) passed++;
     
     std::cout << "\n========================================" << std::endl;
     std::cout << "RESULTS: " << passed << "/" << total << " tests passed" << std::endl;
