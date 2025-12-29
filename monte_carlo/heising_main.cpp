@@ -123,6 +123,15 @@ TemperatureResults run_temperature_point(
         }
     }
     
+    if (rank == 0) {
+        IO::print_subsection_separator("Starting simulation");
+        std::cout << std::endl;
+    }
+    
+    if (rank == 0) {
+        std::cout << "Warmup phase" << std::endl;
+    }
+    
     // Warmup phase
     auto warmup_start = std::chrono::high_resolution_clock::now();
     
@@ -166,6 +175,11 @@ TemperatureResults run_temperature_point(
     results.timings.warmup_time = warmup_elapsed.count();
     
     // Measurement phase
+    if (rank == 0) {
+        std::cout << std::endl;
+        std::cout << "Measurement phase" << std::endl;
+    }
+
     auto measurement_start = std::chrono::high_resolution_clock::now();
     
     sim.reset_statistics();

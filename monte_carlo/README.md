@@ -1,5 +1,16 @@
 # Heising - Monte Carlo Simulation for Magnetic Systems
 
+          _______ _________ _______ _________ _        _______ 
+|\     /|(  ____ \\__   __/(  ____ \\__   __/( (    /|(  ____ \
+| )   ( || (    \/   ) (   | (    \/   ) (   |  \  ( || (    \/
+| (___) || (__       | |   | (_____    | |   |   \ | || |      
+|  ___  ||  __)      | |   (_____  )   | |   | (\ \) || | ____ 
+| (   ) || (         | |         ) |   | |   | | \   || | \_  )
+| )   ( || (____/\___) (___/\____) |___) (___| )  \  || (___) |
+|/     \|(_______/\_______/\_______)\_______/|/    )_)(_______)
+
+
+
 **Version: 0.1.0-alpha**
 
 A high-performance Monte Carlo simulation engine for magnetic systems supporting Ising and Heisenberg spins with multi-atom unit cells, Kugel-Khomskii interactions, and MPI parallelization.
