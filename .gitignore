@@ -6,6 +6,7 @@ meanfield/__pycache__/visualization.cpython-312.pyc
 
 
 monte_carlo/build
+monte_carlo/examples
 
 # Testing files
 *dump*

@@ -1,6 +1,0 @@
-# Two independent spin species - no coupling between them
-# Format: Name   SpinType   Position_x   Position_y   Position_z
-
-H  Heisenberg  0.0  0.0  0.0
-I       Ising       0.5  0.5  0.5
-

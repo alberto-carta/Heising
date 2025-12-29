@@ -12,6 +12,7 @@
 #include "../include/random.h"
 #include "../include/io/configuration_parser.h"
 #include "../include/io/diagnostic_utils.h"
+#include "../include/io/output_formatting.h"
 #include "../include/mpi_wrapper.h"
 #include "../include/profiling.h"
 #include "../include/simulation_utils.h"
@@ -141,6 +142,7 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     }
     
     if (rank == 0) {
+        IO::print_section_separator("INITIALIZATION");
         std::cout << "Running MPI-parallel temperature scan with " << num_ranks << " walkers" << std::endl;
         std::cout << "Temperature range: " << config.temperature.max_temp << " to " 
                   << config.temperature.min_temp << " (step: " << config.temperature.temp_step << ")" << std::endl;
@@ -248,61 +250,6 @@ void run_temperature_scan(const IO::SimulationConfig& config,
         
         outfile << std::fixed << std::setprecision(8);
         stddev_outfile << std::fixed << std::setprecision(8);
-        
-        std::cout << "T         ";
-        std::cout << " Energy/spin  ";
-        if (config.output.output_energy_total) std::cout << " Energy_total ";
-        std::cout << " Magnetization SpecificHeat  Susceptibility AcceptanceRate";
-        
-        if (config.output.output_onsite_magnetization) {
-            for (const auto& sp : config.species) {
-                if (sp.spin_type == SpinType::ISING) {
-                    std::cout << " M[" << sp.name << "]";
-                } else {
-                    std::cout << " Mx[" << sp.name << "] My[" << sp.name << "] Mz[" << sp.name << "]";
-                }
-            }
-        }
-        if (config.output.output_correlations) {
-            std::string first_ising_name = "", first_heis_name = "";
-            for (const auto& sp : config.species) {
-                if (sp.spin_type == SpinType::ISING && first_ising_name.empty()) {
-                    first_ising_name = sp.name;
-                }
-                if (sp.spin_type == SpinType::HEISENBERG && first_heis_name.empty()) {
-                    first_heis_name = sp.name;
-                }
-            }
-            for (size_t i = 0; i < config.species.size(); i++) {
-                if (config.species[i].spin_type == SpinType::ISING) {
-                    std::cout << " <" << first_ising_name << "*" << config.species[i].name << ">";
-                } else {
-                    std::cout << " <" << first_heis_name << "·" << config.species[i].name << ">";
-                }
-            }
-        }
-        std::cout << std::endl;
-        
-        // Print separator line for console
-        std::cout << "----------";
-        std::cout << " -------------";
-        if (config.output.output_energy_total) std::cout << " -------------";
-        std::cout << " ------------- ------------- -------------- --------------";
-        if (config.output.output_onsite_magnetization) {
-            for (const auto& sp : config.species) {
-                if (sp.spin_type == SpinType::ISING) {
-                    std::cout << " --------------";
-                } else {
-                    std::cout << " -------------- -------------- --------------";
-                }
-            }
-        }
-        if (config.output.output_correlations) {
-            for (size_t i = 0; i < config.species.size(); i++) {
-                std::cout << " --------------";
-            }
-        }
-        std::cout << std::endl;
     }
     
     bool first_temperature = true;
@@ -319,13 +266,17 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     // Profiling variables
     std::vector<TemperatureTimings> all_timings;  // Store timings for each temperature
     
+    if (rank == 0) {
+        IO::print_section_separator("TEMPERATURE SCAN");
+    }
+    
     // Temperature scan loop
     for (double T = config.temperature.max_temp; T >= config.temperature.min_temp; T -= config.temperature.temp_step) {
         auto t_start = std::chrono::high_resolution_clock::now();
         TemperatureTimings timings;
         
         if (rank == 0) {
-            std::cout << "\\nT = " << std::fixed << std::setprecision(2) << T << std::endl;
+            std::cout << "\nT = " << std::fixed << std::setprecision(2) << T << std::endl;
         }
         
         // Each rank creates its own simulation with rank-specific seed
@@ -696,40 +647,20 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                 }
             }
             
-            // Output to console
-            std::cout << std::fixed << std::setprecision(8);
-            std::cout << std::setw(10) << T << " "
-                      << std::setw(13) << avg_energy_per_spin << " ";
-            if (config.output.output_energy_total) {
-                std::cout << std::setw(13) << avg_total_energy << " ";
-            }
-            std::cout << std::setw(13) << avg_magnetization_per_spin << " "
-                      << std::setw(13) << specific_heat << " "
-                      << std::setw(14) << susceptibility << " "
-                      << std::setw(14) << std::setprecision(6) << avg_accept_rate;
-            
-            // Optional: on-site magnetization
-            if (config.output.output_onsite_magnetization) {
-                for (size_t i = 0; i < config.species.size(); i++) {
-                    if (config.species[i].spin_type == SpinType::ISING) {
-                        // For Ising: output single magnetization value
-                        std::cout << " " << std::setw(14) << std::setprecision(8) << avg_mag_vec_per_spin[i].z;
-                    } else {
-                        // For Heisenberg: output all three components
-                        std::cout << " " << std::setw(14) << std::setprecision(8) << avg_mag_vec_per_spin[i].x
-                                  << " " << std::setw(14) << std::setprecision(8) << avg_mag_vec_per_spin[i].y
-                                  << " " << std::setw(14) << std::setprecision(8) << avg_mag_vec_per_spin[i].z;
-                    }
-                }
-            }
-            
-            // Optional: correlations
-            if (config.output.output_correlations) {
-                for (const auto& corr : avg_correlations) {
-                    std::cout << " " << std::setw(14) << std::setprecision(8) << corr;
-                }
-            }
-            std::cout << std::endl;
+            // Output to console - formatted for readability
+            IO::print_observables_formatted(
+                T, total_spins,
+                avg_energy, stddev_energy,
+                avg_magnetization, stddev_magnetization,
+                specific_heat, stddev_specific_heat,
+                susceptibility, stddev_susceptibility,
+                avg_accept_rate, stddev_accept_rate,
+                config.species,
+                avg_mag_vec_per_spin, stddev_mag_vec_per_spin,
+                avg_correlations, stddev_correlations,
+                config.output.output_onsite_magnetization,
+                config.output.output_correlations
+            );
             
             // Output to file
             outfile << std::fixed << std::setprecision(8);
@@ -843,7 +774,7 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     if (rank == 0) {
         outfile.close();
         stddev_outfile.close();
-        std::cout << "\\nResults saved to:" << std::endl;
+        std::cout << "\nResults saved to:" << std::endl;
         std::cout << "  Mean values: " << output_file << std::endl;
         std::cout << "  Std dev:     " << stddev_file << std::endl;
     }
@@ -864,9 +795,8 @@ int main(int argc, char* argv[]) {
     }
     
     if (mpi_env.is_master()) {
-        std::cout << "========================================" << std::endl;
-        std::cout << "  MPI Monte Carlo Simulation (" << mpi_env.get_num_ranks() << " ranks)" << std::endl;
-        std::cout << "========================================" << std::endl;
+        IO::print_logo();
+        IO::print_section_separator("MPI Monte Carlo Simulation (" + std::to_string(mpi_env.get_num_ranks()) + " ranks)");
     }
     
     // Parse command line arguments

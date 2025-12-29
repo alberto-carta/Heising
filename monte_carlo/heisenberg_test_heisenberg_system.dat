@@ -1,7 +1,0 @@
-# Monte Carlo simulation results
-# System: Fe_moment(Heisenberg) 
-# Lattice: 8³
-# Columns: T          Energy/spin   Magnetization |Magnetization| SpecificHeat  Susceptibility AcceptanceRate
-3.00000000   -0.35188351   -0.00170483    1.00000000    0.00025889     0.00059423      86.225117
-2.00000000   -0.56014645   -0.00237501    1.00000000    0.00069855     0.00211848      78.778809
-1.00000000   -1.90104982   -0.71216067    1.00000000    0.00248816     0.00061277      49.929141
