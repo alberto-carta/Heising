@@ -103,6 +103,7 @@ file(GLOB CORE_SOURCES
     "src/random.cpp"
     "src/simulation_utils.cpp"
     "src/profiling.cpp"
+    "src/mc_phases.cpp"
 )
 
 file(GLOB IO_SOURCES 

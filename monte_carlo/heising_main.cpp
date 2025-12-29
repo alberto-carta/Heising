@@ -16,6 +16,7 @@
 #include "../include/mpi_wrapper.h"
 #include "../include/profiling.h"
 #include "../include/simulation_utils.h"
+#include "../include/mc_phases.h"
 
 #include <iostream>
 #include <iomanip>
@@ -128,196 +129,21 @@ TemperatureResults run_temperature_point(
         std::cout << std::endl;
     }
     
-    if (rank == 0) {
-        std::cout << "Warmup phase" << std::endl;
-    }
-    
     // Warmup phase
-    auto warmup_start = std::chrono::high_resolution_clock::now();
-    
-    if (config.diagnostics.enable_profiling && config.monte_carlo.warmup_steps >= 1000) {
-        // Profile MC step timing during first 1000 steps
-        auto mc_timing_start = std::chrono::high_resolution_clock::now();
-        for (int step_sample = 0; step_sample < 1000; step_sample++) {
-            for (int attempt = 0; attempt < total_spins; attempt++) {
-                sim.run_monte_carlo_step();
-            }
-        }
-        auto mc_timing_end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> mc_elapsed = mc_timing_end - mc_timing_start;
-        results.timings.mc_step_time_estimate = mc_elapsed.count() / (1000.0 * total_spins);
-        
-        // Continue with remaining warmup
-        for (int sweep = 1000; sweep < config.monte_carlo.warmup_steps; sweep++) {
-            for (int attempt = 0; attempt < total_spins; attempt++) {
-                sim.run_monte_carlo_step();
-            }
-            if (rank == 0 && (sweep + 1) % 1000 == 0) {
-                std::cout << "  Warmup: " << (sweep + 1) << "/" << config.monte_carlo.warmup_steps 
-                          << " (" << std::setprecision(1) << (100.0 * (sweep + 1)) / config.monte_carlo.warmup_steps << "%)" << std::endl;
-            }
-        }
-    } else {
-        // Regular warmup without timing
-        for (int sweep = 0; sweep < config.monte_carlo.warmup_steps; sweep++) {
-            for (int attempt = 0; attempt < total_spins; attempt++) {
-                sim.run_monte_carlo_step();
-            }
-            if (rank == 0 && (sweep + 1) % 1000 == 0) {
-                std::cout << "  Warmup: " << (sweep + 1) << "/" << config.monte_carlo.warmup_steps 
-                          << " (" << std::setprecision(1) << (100.0 * (sweep + 1)) / config.monte_carlo.warmup_steps << "%)" << std::endl;
-            }
-        }
-    }
-    
-    auto warmup_end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> warmup_elapsed = warmup_end - warmup_start;
-    results.timings.warmup_time = warmup_elapsed.count();
+    auto [warmup_time, mc_step_estimate] = run_warmup_phase(sim, config.monte_carlo.warmup_steps, 
+                                                              total_spins, config.diagnostics.enable_profiling, rank);
+    results.timings.warmup_time = warmup_time;
+    results.timings.mc_step_time_estimate = mc_step_estimate;
     
     // Measurement phase
-    if (rank == 0) {
-        std::cout << std::endl;
-        std::cout << "Measurement phase" << std::endl;
-    }
-
-    auto measurement_start = std::chrono::high_resolution_clock::now();
-    
-    sim.reset_statistics();
-    
-    // Store all measurements in arrays for proper statistics
-    std::vector<double> energy_samples;
-    std::vector<double> magnetization_samples;
-    std::vector<std::vector<double>> mag_x_samples(config.species.size());
-    std::vector<std::vector<double>> mag_y_samples(config.species.size());
-    std::vector<std::vector<double>> mag_z_samples(config.species.size());
-    std::vector<std::vector<double>> correlation_samples(config.species.size());
-    std::vector<double> acceptance_samples;
-    
-    int expected_samples = measurement_steps_per_rank / config.monte_carlo.sampling_frequency;
-    energy_samples.reserve(expected_samples);
-    magnetization_samples.reserve(expected_samples);
-    for (size_t i = 0; i < config.species.size(); i++) {
-        mag_x_samples[i].reserve(expected_samples);
-        mag_y_samples[i].reserve(expected_samples);
-        mag_z_samples[i].reserve(expected_samples);
-        if (config.output.output_correlations) {
-            correlation_samples[i].reserve(expected_samples);
-        }
-    }
-    acceptance_samples.reserve(expected_samples);
-    
-    // For autocorrelation estimation
-    std::vector<double> energy_series, magnetization_series;
-    if (config.diagnostics.estimate_autocorrelation) {
-        energy_series.reserve(measurement_steps_per_rank / config.monte_carlo.sampling_frequency);
-        magnetization_series.reserve(measurement_steps_per_rank / config.monte_carlo.sampling_frequency);
-    }
-    
-    // Setup observable evolution file if needed
-    std::ofstream obs_evolution_file;
-    if (config.diagnostics.enable_observable_evolution && config.diagnostics.should_dump_rank(rank)) {
-        obs_evolution_file = IO::setup_observable_evolution_file(dump_dir, rank, T, config.species);
-    }
-    
-    // Print warnings if using expensive options
-    if (rank == 0 && config.diagnostics.recompute_observables_each_sample) {
-        std::cout << "  WARNING: recompute_observables_each_sample=true (slower)" << std::endl;
-    }
-    if (rank == 0 && config.output.output_correlations) {
-        std::cout << "  Note: Computing spin correlations (requires full lattice traversal)" << std::endl;
-    }
-    
-    // Main measurement loop
-    int num_samples = 0;
-    for (int sweep = 0; sweep < measurement_steps_per_rank; sweep++) {
-        // One sweep = total_spins random update attempts
-        for (int attempt = 0; attempt < total_spins; attempt++) {
-            sim.run_monte_carlo_step();
-        }
-        
-        if (sweep % config.monte_carlo.sampling_frequency == 0) {
-            // Get observables
-            double energy, magnetization;
-            std::vector<spin3d> mag_vectors;
-            
-            if (config.diagnostics.recompute_observables_each_sample) {
-                energy = sim.get_energy();
-                magnetization = sim.get_magnetization();
-                mag_vectors = sim.get_magnetization_vector_per_spin();
-            } else {
-                energy = sim.get_tracked_energy();
-                magnetization = sim.get_tracked_magnetization();
-                mag_vectors = sim.get_tracked_magnetization_vector_per_spin();
-            }
-            
-            // Correlations always need full computation
-            std::vector<double> correlations;
-            if (config.output.output_correlations) {
-                correlations = sim.get_spin_correlation_with_first();
-            }
-            
-            // Store all samples
-            energy_samples.push_back(energy);
-            magnetization_samples.push_back(magnetization);
-            if (config.output.output_onsite_magnetization) {
-                for (size_t i = 0; i < mag_vectors.size(); i++) {
-                    mag_x_samples[i].push_back(mag_vectors[i].x);
-                    mag_y_samples[i].push_back(mag_vectors[i].y);
-                    mag_z_samples[i].push_back(mag_vectors[i].z);
-                }
-            }
-            if (config.output.output_correlations) {
-                for (size_t i = 0; i < correlations.size(); i++) {
-                    correlation_samples[i].push_back(correlations[i]);
-                }
-            }
-            acceptance_samples.push_back(sim.get_acceptance_rate());
-            num_samples++;
-            
-            // Store for autocorrelation
-            if (config.diagnostics.estimate_autocorrelation) {
-                energy_series.push_back(energy / total_spins);
-                magnetization_series.push_back(magnetization / total_spins);
-            }
-            
-            // Dump configuration if requested
-            if (config.diagnostics.enable_config_dump && 
-                config.diagnostics.should_dump_rank(rank) &&
-                num_samples % config.diagnostics.dump_every_n_measurements == 0) {
-                IO::dump_configuration_to_file(sim, config.species, config.lattice_size, 
-                                               T, sweep, rank, dump_dir);
-            }
-            
-            // Write observable evolution if requested
-            if (obs_evolution_file.is_open() &&
-                num_samples % config.diagnostics.dump_every_n_measurements == 0) {
-                double accept_rate = sim.get_acceptance_rate();
-                IO::write_observable_evolution(obs_evolution_file, sweep, 
-                                               energy / total_spins, 
-                                               magnetization / total_spins,
-                                               correlations, accept_rate);
-            }
-        }
-        
-        // Progress updates every 5000 sweeps
-        if (rank == 0 && (sweep + 1) % 5000 == 0) {
-            std::cout << "  Measurement: " << (sweep + 1) << "/" << measurement_steps_per_rank 
-                      << " (" << std::setprecision(1) << (100.0 * (sweep + 1)) / measurement_steps_per_rank << "%)" << std::endl;
-        }
-    }
-    
-    if (obs_evolution_file.is_open()) {
-        obs_evolution_file.close();
-    }
-    
-    auto measurement_end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> measurement_elapsed = measurement_end - measurement_start;
-    results.timings.measurement_time = measurement_elapsed.count();
+    auto [measurement_data, measurement_time] = run_measurement_phase(sim, config, measurement_steps_per_rank,
+                                                                        total_spins, T, rank, dump_dir);
+    results.timings.measurement_time = measurement_time;
     
     // Gather all measurements from all ranks to rank 0
     auto comm_start = std::chrono::high_resolution_clock::now();
-    std::vector<double> all_energy_samples = mpi_accumulator.gather_samples(energy_samples);
-    std::vector<double> all_magnetization_samples = mpi_accumulator.gather_samples(magnetization_samples);
+    std::vector<double> all_energy_samples = mpi_accumulator.gather_samples(measurement_data.energy_samples);
+    std::vector<double> all_magnetization_samples = mpi_accumulator.gather_samples(measurement_data.magnetization_samples);
     
     // Gather magnetization vector components for each species
     std::vector<std::vector<double>> all_mag_x_samples(config.species.size());
@@ -325,9 +151,9 @@ TemperatureResults run_temperature_point(
     std::vector<std::vector<double>> all_mag_z_samples(config.species.size());
     if (config.output.output_onsite_magnetization) {
         for (size_t i = 0; i < config.species.size(); i++) {
-            all_mag_x_samples[i] = mpi_accumulator.gather_samples(mag_x_samples[i]);
-            all_mag_y_samples[i] = mpi_accumulator.gather_samples(mag_y_samples[i]);
-            all_mag_z_samples[i] = mpi_accumulator.gather_samples(mag_z_samples[i]);
+            all_mag_x_samples[i] = mpi_accumulator.gather_samples(measurement_data.mag_x_samples[i]);
+            all_mag_y_samples[i] = mpi_accumulator.gather_samples(measurement_data.mag_y_samples[i]);
+            all_mag_z_samples[i] = mpi_accumulator.gather_samples(measurement_data.mag_z_samples[i]);
         }
     }
     
@@ -335,12 +161,12 @@ TemperatureResults run_temperature_point(
     std::vector<std::vector<double>> all_correlation_samples(config.species.size());
     if (config.output.output_correlations) {
         for (size_t i = 0; i < config.species.size(); i++) {
-            all_correlation_samples[i] = mpi_accumulator.gather_samples(correlation_samples[i]);
+            all_correlation_samples[i] = mpi_accumulator.gather_samples(measurement_data.correlation_samples[i]);
         }
     }
     
     // Gather acceptance rates
-    std::vector<double> all_acceptance_samples = mpi_accumulator.gather_samples(acceptance_samples);
+    std::vector<double> all_acceptance_samples = mpi_accumulator.gather_samples(measurement_data.acceptance_samples);
     
     auto comm_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> comm_elapsed = comm_end - comm_start;
@@ -436,9 +262,9 @@ TemperatureResults run_temperature_point(
         }
         
         // Autocorrelation estimates if enabled
-        if (config.diagnostics.estimate_autocorrelation && energy_series.size() > 2) {
-            double rho_energy = estimate_autocorrelation(energy_series);
-            double rho_mag = estimate_autocorrelation(magnetization_series);
+        if (config.diagnostics.estimate_autocorrelation && measurement_data.energy_series.size() > 2) {
+            double rho_energy = estimate_autocorrelation(measurement_data.energy_series);
+            double rho_mag = estimate_autocorrelation(measurement_data.magnetization_series);
             double tau_energy = estimate_autocorrelation_time(rho_energy);
             double tau_mag = estimate_autocorrelation_time(rho_mag);
             
