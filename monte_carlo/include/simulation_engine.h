@@ -59,7 +59,11 @@ private:
     template <bool use_kk>
     double calculate_local_energy_implementation(int x, int y, int z, int spin_id);
     
-    // Standard coupling contribution helper (J_ij * S_i · S_j)
+    // Site-based energy calculation (loops over all spins at site)
+    template <bool use_kk>
+    double calculate_site_energy_implementation(int x, int y, int z, int site_id);
+    
+    // Standard coupling contribution helper (J_ij * S_i · S_j) for a single spin
     double compute_coupling_contribution(int x, int y, int z, int spin_id);
     
     // Kugel-Khomskii contribution helper (depends only on site_i and relative distances)
@@ -68,8 +72,10 @@ private:
     // Create a new type of function pointer (necessary if inside class) that will point to the correct version
     // double (MonteCarloSimulation::*energy_func_ptr)(int, int, int, int);
     typedef double (MonteCarloSimulation::*EnergyFuncPtr)(int, int, int, int);
+    typedef double (MonteCarloSimulation::*SiteEnergyFuncPtr)(int, int, int, int);
     // create the pointer that will be used to call the correct function
     EnergyFuncPtr energy_dispatch_ptr;
+    SiteEnergyFuncPtr site_energy_dispatch_ptr;
 
     
     // Fast Metropolis test

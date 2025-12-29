@@ -170,11 +170,12 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     //   - This is the standard Monte Carlo "random site selection" algorithm
     
     // Determine output file name (only rank 0 will write)
-    std::string output_file;
-    std::ofstream outfile;
+    std::string output_file, stddev_file;
+    std::ofstream outfile, stddev_outfile;
     
     if (rank == 0) {
         output_file = config.output.directory + "/" + config.output.base_name + "_";
+        stddev_file = config.output.directory + "/" + config.output.base_name + "_";
         
         bool has_ising = false, has_heisenberg = false;
         for (const auto& species : config.species) {
@@ -183,50 +184,86 @@ void run_temperature_scan(const IO::SimulationConfig& config,
         }
         
         output_file += "observables.out";
+        stddev_file += "observables_stddev.out";
         
         outfile.open(output_file);
-        outfile << "# Monte Carlo simulation results (MPI parallel, " << num_ranks << " walkers)" << std::endl;
-        outfile << "# System: ";
-        for (const auto& species : config.species) {
-            outfile << species.name << "(" << (species.spin_type == SpinType::ISING ? "Ising" : "Heisenberg") << ") ";
-        }
-        outfile << std::endl;
-        outfile << "# Lattice: " << config.lattice_size << "³" << std::endl;
+        stddev_outfile.open(stddev_file);
+        
+        // Write headers for both files
+        auto write_header = [&](std::ofstream& file, const std::string& desc) {
+            file << "# Monte Carlo simulation " << desc << " (MPI parallel, " << num_ranks << " walkers)" << std::endl;
+            file << "# System: ";
+            for (const auto& species : config.species) {
+                file << species.name << "(" << (species.spin_type == SpinType::ISING ? "Ising" : "Heisenberg") << ") ";
+            }
+            file << std::endl;
+            file << "# Lattice: " << config.lattice_size << "³" << std::endl;
+        };
+        
+        write_header(outfile, "results (mean values)");
+        write_header(stddev_outfile, "standard deviations");
         
         // Build column header dynamically based on output options
-        outfile << "# Columns: T";
+        auto write_column_header = [&](std::ofstream& file) {
+            file << "# Columns: T";
+            file << " Energy/spin";
+            if (config.output.output_energy_total) {
+                file << " Energy_total";
+            }
+            file << " Magnetization SpecificHeat Susceptibility AcceptanceRate";
+            
+            if (config.output.output_onsite_magnetization) {
+                for (const auto& sp : config.species) {
+                    if (sp.spin_type == SpinType::ISING) {
+                        file << " M[" << sp.name << "]";
+                    } else {
+                        file << " Mx[" << sp.name << "] My[" << sp.name << "] Mz[" << sp.name << "]";
+                    }
+                }
+            }
+            
+            if (config.output.output_correlations) {
+                std::string first_ising_name = "", first_heis_name = "";
+                for (const auto& sp : config.species) {
+                    if (sp.spin_type == SpinType::ISING && first_ising_name.empty()) {
+                        first_ising_name = sp.name;
+                    }
+                    if (sp.spin_type == SpinType::HEISENBERG && first_heis_name.empty()) {
+                        first_heis_name = sp.name;
+                    }
+                }
+                for (size_t i = 0; i < config.species.size(); i++) {
+                    if (config.species[i].spin_type == SpinType::ISING) {
+                        file << " <" << first_ising_name << "*" << config.species[i].name << ">";
+                    } else {
+                        file << " <" << first_heis_name << "·" << config.species[i].name << ">";
+                    }
+                }
+            }
+            file << std::endl;
+        };
+        
+        write_column_header(outfile);
+        write_column_header(stddev_outfile);
+        
+        outfile << std::fixed << std::setprecision(8);
+        stddev_outfile << std::fixed << std::setprecision(8);
+        
         std::cout << "T         ";
-        
-        // Always output energy per spin
-        outfile << " Energy/spin";
         std::cout << " Energy/spin  ";
-        
-        // Optional: total energy
-        if (config.output.output_energy_total) {
-            outfile << " Energy_total";
-            std::cout << " Energy_total ";
-        }
-        
-        // Always output basic thermodynamic quantities
-        outfile << " Magnetization SpecificHeat Susceptibility AcceptanceRate";
+        if (config.output.output_energy_total) std::cout << " Energy_total ";
         std::cout << " Magnetization SpecificHeat  Susceptibility AcceptanceRate";
         
-        // Optional: on-site magnetization per species
         if (config.output.output_onsite_magnetization) {
             for (const auto& sp : config.species) {
                 if (sp.spin_type == SpinType::ISING) {
-                    outfile << " M[" << sp.name << "]";
                     std::cout << " M[" << sp.name << "]";
                 } else {
-                    outfile << " Mx[" << sp.name << "] My[" << sp.name << "] Mz[" << sp.name << "]";
                     std::cout << " Mx[" << sp.name << "] My[" << sp.name << "] Mz[" << sp.name << "]";
                 }
             }
         }
-        
-        // Optional: correlations with first spin
         if (config.output.output_correlations) {
-            // Find first Ising and first Heisenberg spins for correlation labels
             std::string first_ising_name = "", first_heis_name = "";
             for (const auto& sp : config.species) {
                 if (sp.spin_type == SpinType::ISING && first_ising_name.empty()) {
@@ -238,19 +275,13 @@ void run_temperature_scan(const IO::SimulationConfig& config,
             }
             for (size_t i = 0; i < config.species.size(); i++) {
                 if (config.species[i].spin_type == SpinType::ISING) {
-                    outfile << " <" << first_ising_name << "*" << config.species[i].name << ">";
                     std::cout << " <" << first_ising_name << "*" << config.species[i].name << ">";
                 } else {
-                    outfile << " <" << first_heis_name << "·" << config.species[i].name << ">";
                     std::cout << " <" << first_heis_name << "·" << config.species[i].name << ">";
                 }
             }
         }
-        
-        outfile << std::endl;
         std::cout << std::endl;
-        
-        outfile << std::fixed << std::setprecision(8);
         
         // Print separator line for console
         std::cout << "----------";
@@ -365,16 +396,35 @@ void run_temperature_scan(const IO::SimulationConfig& config,
         std::chrono::duration<double> warmup_elapsed = warmup_end - warmup_start;
         timings.warmup_time = warmup_elapsed.count();
         
-        // Measurement phase - each rank accumulates local statistics
+        // Measurement phase - each rank stores all measurement samples
         // Each rank runs only its portion of the total measurement steps
         auto measurement_start = std::chrono::high_resolution_clock::now();
         
         // Note: measurement_steps_per_rank sweeps, where each sweep = total_spins random update attempts
         sim.reset_statistics();
-        double local_energy = 0.0, local_energy_sq = 0.0;
-        double local_magnetization = 0.0, local_magnetization_sq = 0.0;
-        std::vector<spin3d> local_mag_vec_per_spin(config.species.size(), spin3d(0.0, 0.0, 0.0));
-        std::vector<double> local_correlations(config.species.size(), 0.0);
+        
+        // Store all measurements in arrays for proper statistics
+        std::vector<double> energy_samples;
+        std::vector<double> magnetization_samples;
+        std::vector<std::vector<double>> mag_x_samples(config.species.size());
+        std::vector<std::vector<double>> mag_y_samples(config.species.size());
+        std::vector<std::vector<double>> mag_z_samples(config.species.size());
+        std::vector<std::vector<double>> correlation_samples(config.species.size());
+        std::vector<double> acceptance_samples;
+        
+        int expected_samples = measurement_steps_per_rank / config.monte_carlo.sampling_frequency;
+        energy_samples.reserve(expected_samples);
+        magnetization_samples.reserve(expected_samples);
+        for (size_t i = 0; i < config.species.size(); i++) {
+            mag_x_samples[i].reserve(expected_samples);
+            mag_y_samples[i].reserve(expected_samples);
+            mag_z_samples[i].reserve(expected_samples);
+            if (config.output.output_correlations) {
+                correlation_samples[i].reserve(expected_samples);
+            }
+        }
+        acceptance_samples.reserve(expected_samples);
+        
         int num_samples = 0;
         
         // For autocorrelation estimation
@@ -432,22 +482,22 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                     correlations = sim.get_spin_correlation_with_first();
                 }
                 
-                local_energy += energy;
-                local_energy_sq += energy * energy;
-                local_magnetization += magnetization;
-                local_magnetization_sq += magnetization * magnetization;
+                // Store all samples in arrays
+                energy_samples.push_back(energy);
+                magnetization_samples.push_back(magnetization);
                 if (config.output.output_onsite_magnetization) {
                     for (size_t i = 0; i < mag_vectors.size(); i++) {
-                        local_mag_vec_per_spin[i].x += mag_vectors[i].x;
-                        local_mag_vec_per_spin[i].y += mag_vectors[i].y;
-                        local_mag_vec_per_spin[i].z += mag_vectors[i].z;
+                        mag_x_samples[i].push_back(mag_vectors[i].x);
+                        mag_y_samples[i].push_back(mag_vectors[i].y);
+                        mag_z_samples[i].push_back(mag_vectors[i].z);
                     }
                 }
                 if (config.output.output_correlations) {
                     for (size_t i = 0; i < correlations.size(); i++) {
-                        local_correlations[i] += correlations[i];
+                        correlation_samples[i].push_back(correlations[i]);
                     }
                 }
+                acceptance_samples.push_back(sim.get_acceptance_rate());
                 num_samples++;
                 
                 // Store for autocorrelation
@@ -516,31 +566,33 @@ void run_temperature_scan(const IO::SimulationConfig& config,
             }
         }
         
-        // Accumulate statistics across all ranks
+        // Gather all measurements from all ranks to rank 0
         auto comm_start = std::chrono::high_resolution_clock::now();
-        double global_energy = mpi_accumulator.accumulate_sum(local_energy);
-        double global_energy_sq = mpi_accumulator.accumulate_sum(local_energy_sq);
-        double global_magnetization = mpi_accumulator.accumulate_sum(local_magnetization);
-        double global_magnetization_sq = mpi_accumulator.accumulate_sum(local_magnetization_sq);
+        std::vector<double> all_energy_samples = mpi_accumulator.gather_samples(energy_samples);
+        std::vector<double> all_magnetization_samples = mpi_accumulator.gather_samples(magnetization_samples);
         
-        // For magnetization vectors, reduce x, y, z components separately
-        std::vector<double> local_mag_x(config.species.size());
-        std::vector<double> local_mag_y(config.species.size());
-        std::vector<double> local_mag_z(config.species.size());
-        for (size_t i = 0; i < config.species.size(); i++) {
-            local_mag_x[i] = local_mag_vec_per_spin[i].x;
-            local_mag_y[i] = local_mag_vec_per_spin[i].y;
-            local_mag_z[i] = local_mag_vec_per_spin[i].z;
+        // Gather magnetization vector components for each species
+        std::vector<std::vector<double>> all_mag_x_samples(config.species.size());
+        std::vector<std::vector<double>> all_mag_y_samples(config.species.size());
+        std::vector<std::vector<double>> all_mag_z_samples(config.species.size());
+        if (config.output.output_onsite_magnetization) {
+            for (size_t i = 0; i < config.species.size(); i++) {
+                all_mag_x_samples[i] = mpi_accumulator.gather_samples(mag_x_samples[i]);
+                all_mag_y_samples[i] = mpi_accumulator.gather_samples(mag_y_samples[i]);
+                all_mag_z_samples[i] = mpi_accumulator.gather_samples(mag_z_samples[i]);
+            }
         }
-        std::vector<double> global_mag_x = mpi_accumulator.accumulate_sum(local_mag_x);
-        std::vector<double> global_mag_y = mpi_accumulator.accumulate_sum(local_mag_y);
-        std::vector<double> global_mag_z = mpi_accumulator.accumulate_sum(local_mag_z);
         
-        // Accumulate correlations (these are safe to average across walkers)
-        std::vector<double> global_correlations = mpi_accumulator.accumulate_sum(local_correlations);
+        // Gather correlations
+        std::vector<std::vector<double>> all_correlation_samples(config.species.size());
+        if (config.output.output_correlations) {
+            for (size_t i = 0; i < config.species.size(); i++) {
+                all_correlation_samples[i] = mpi_accumulator.gather_samples(correlation_samples[i]);
+            }
+        }
         
-        double local_acceptance = sim.get_acceptance_rate();
-        double global_acceptance = mpi_accumulator.accumulate_sum(local_acceptance);
+        // Gather acceptance rates
+        std::vector<double> all_acceptance_samples = mpi_accumulator.gather_samples(acceptance_samples);
         
         auto comm_end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> comm_elapsed = comm_end - comm_start;
@@ -566,30 +618,83 @@ void run_temperature_scan(const IO::SimulationConfig& config,
 #endif
         }
         
-        // Only rank 0 computes final statistics and outputs
+        // Only rank 0 computes final statistics from all gathered samples
         if (rank == 0) {
-            int total_samples = num_samples * num_ranks;
+            int total_samples = all_energy_samples.size();
             
-            double avg_energy_per_spin = global_energy / total_samples / total_spins;
-            double avg_energy_sq_per_spin = global_energy_sq / total_samples / (total_spins * total_spins);
-            double avg_magnetization_per_spin = global_magnetization / total_samples / total_spins;
-            double avg_magnetization_sq_per_spin = global_magnetization_sq / total_samples / (total_spins * total_spins);
+            // Compute mean and standard deviation for all observables
+            auto compute_stats = [](const std::vector<double>& samples) -> std::pair<double, double> {
+                if (samples.empty()) return {0.0, 0.0};
+                double sum = 0.0;
+                for (double val : samples) sum += val;
+                double mean = sum / samples.size();
+                double sum_sq_diff = 0.0;
+                for (double val : samples) {
+                    double diff = val - mean;
+                    sum_sq_diff += diff * diff;
+                }
+                double stddev = std::sqrt(sum_sq_diff / samples.size());
+                return {mean, stddev};
+            };
             
-            std::vector<spin3d> avg_mag_vec_per_spin(config.species.size());
-            std::vector<double> avg_correlations(config.species.size());
-            for (size_t i = 0; i < config.species.size(); i++) {
-                avg_mag_vec_per_spin[i].x = global_mag_x[i] / total_samples;
-                avg_mag_vec_per_spin[i].y = global_mag_y[i] / total_samples;
-                avg_mag_vec_per_spin[i].z = global_mag_z[i] / total_samples;
-                avg_correlations[i] = global_correlations[i] / total_samples;
-            }
+            // Energy statistics
+            auto [avg_energy, stddev_energy] = compute_stats(all_energy_samples);
+            double avg_energy_per_spin = avg_energy / total_spins;
+            double stddev_energy_per_spin = stddev_energy / total_spins;
+            
+            // Total energy statistics
+            double avg_total_energy = avg_energy;
+            double stddev_total_energy = stddev_energy;
+            
+            // Magnetization statistics
+            auto [avg_magnetization, stddev_magnetization] = compute_stats(all_magnetization_samples);
+            double avg_magnetization_per_spin = avg_magnetization / total_spins;
+            double stddev_magnetization_per_spin = stddev_magnetization / total_spins;
+            
+            // Specific heat and susceptibility (from fluctuations)
+            double avg_energy_sq = 0.0;
+            for (double e : all_energy_samples) avg_energy_sq += e * e;
+            avg_energy_sq /= total_samples;
+            double avg_energy_sq_per_spin = avg_energy_sq / (total_spins * total_spins);
+            
+            double avg_magnetization_sq = 0.0;
+            for (double m : all_magnetization_samples) avg_magnetization_sq += m * m;
+            avg_magnetization_sq /= total_samples;
+            double avg_magnetization_sq_per_spin = avg_magnetization_sq / (total_spins * total_spins);
             
             double specific_heat = (avg_energy_sq_per_spin - avg_energy_per_spin * avg_energy_per_spin) / (T * T);
             double susceptibility = (avg_magnetization_sq_per_spin - avg_magnetization_per_spin * avg_magnetization_per_spin) / T;
-            double avg_accept_rate = global_acceptance / num_ranks;
             
-            // Calculate total energy
-            double avg_total_energy = avg_energy_per_spin * total_spins;
+            // Compute stddev for specific heat and susceptibility (using error propagation)
+            double stddev_specific_heat = 2.0 * stddev_energy_per_spin * std::sqrt(avg_energy_sq_per_spin - avg_energy_per_spin * avg_energy_per_spin) / (T * T);
+            double stddev_susceptibility = 2.0 * stddev_magnetization_per_spin * std::sqrt(avg_magnetization_sq_per_spin - avg_magnetization_per_spin * avg_magnetization_per_spin) / T;
+            
+            // Acceptance rate statistics
+            auto [avg_accept_rate, stddev_accept_rate] = compute_stats(all_acceptance_samples);
+            
+            // Per-spin magnetization vector statistics
+            std::vector<spin3d> avg_mag_vec_per_spin(config.species.size());
+            std::vector<spin3d> stddev_mag_vec_per_spin(config.species.size());
+            if (config.output.output_onsite_magnetization) {
+                for (size_t i = 0; i < config.species.size(); i++) {
+                    auto [mx_mean, mx_std] = compute_stats(all_mag_x_samples[i]);
+                    auto [my_mean, my_std] = compute_stats(all_mag_y_samples[i]);
+                    auto [mz_mean, mz_std] = compute_stats(all_mag_z_samples[i]);
+                    avg_mag_vec_per_spin[i] = spin3d(mx_mean, my_mean, mz_mean);
+                    stddev_mag_vec_per_spin[i] = spin3d(mx_std, my_std, mz_std);
+                }
+            }
+            
+            // Correlation statistics
+            std::vector<double> avg_correlations(config.species.size());
+            std::vector<double> stddev_correlations(config.species.size());
+            if (config.output.output_correlations) {
+                for (size_t i = 0; i < config.species.size(); i++) {
+                    auto [corr_mean, corr_std] = compute_stats(all_correlation_samples[i]);
+                    avg_correlations[i] = corr_mean;
+                    stddev_correlations[i] = corr_std;
+                }
+            }
             
             // Output to console
             std::cout << std::fixed << std::setprecision(8);
@@ -658,6 +763,39 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                 }
             }
             outfile << std::endl;
+            
+            // Output standard deviations to separate file
+            stddev_outfile << std::fixed << std::setprecision(8);
+            stddev_outfile << std::setw(10) << T << " "
+                          << std::setw(13) << stddev_energy_per_spin << " ";
+            if (config.output.output_energy_total) {
+                stddev_outfile << std::setw(13) << stddev_total_energy << " ";
+            }
+            stddev_outfile << std::setw(13) << stddev_magnetization_per_spin << " "
+                          << std::setw(13) << stddev_specific_heat << " "
+                          << std::setw(14) << stddev_susceptibility << " "
+                          << std::setw(14) << std::setprecision(6) << stddev_accept_rate;
+            
+            // Optional: on-site magnetization stddev
+            if (config.output.output_onsite_magnetization) {
+                for (size_t i = 0; i < config.species.size(); i++) {
+                    if (config.species[i].spin_type == SpinType::ISING) {
+                        stddev_outfile << " " << std::setw(14) << std::setprecision(8) << stddev_mag_vec_per_spin[i].z;
+                    } else {
+                        stddev_outfile << " " << std::setw(14) << std::setprecision(8) << stddev_mag_vec_per_spin[i].x
+                                      << " " << std::setw(14) << std::setprecision(8) << stddev_mag_vec_per_spin[i].y
+                                      << " " << std::setw(14) << std::setprecision(8) << stddev_mag_vec_per_spin[i].z;
+                    }
+                }
+            }
+            
+            // Optional: correlations stddev
+            if (config.output.output_correlations) {
+                for (const auto& corr_std : stddev_correlations) {
+                    stddev_outfile << " " << std::setw(14) << std::setprecision(8) << corr_std;
+                }
+            }
+            stddev_outfile << std::endl;
         }
         
         // Compute and print autocorrelation estimates if enabled
@@ -704,7 +842,10 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     
     if (rank == 0) {
         outfile.close();
-        std::cout << "\\nResults saved to: " << output_file << std::endl;
+        stddev_outfile.close();
+        std::cout << "\\nResults saved to:" << std::endl;
+        std::cout << "  Mean values: " << output_file << std::endl;
+        std::cout << "  Std dev:     " << stddev_file << std::endl;
     }
 }  // end run_temperature_scan
 

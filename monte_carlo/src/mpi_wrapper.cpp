@@ -169,3 +169,44 @@ void MPIAccumulator::average_configuration_vectors(std::vector<double>& heisenbe
     }
 #endif
 }
+
+// Gather all samples from all ranks to rank 0
+std::vector<double> MPIAccumulator::gather_samples(const std::vector<double>& local_samples) {
+#ifdef USE_MPI
+    if (mpi_env.using_mpi()) {
+        int local_count = local_samples.size();
+        std::vector<int> all_counts;
+        std::vector<int> displacements;
+        
+        // Gather sample counts from all ranks
+        if (mpi_env.is_master()) {
+            all_counts.resize(mpi_env.get_num_ranks());
+        }
+        MPI_Gather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+        
+        // Compute total size and displacements on rank 0
+        int total_count = 0;
+        if (mpi_env.is_master()) {
+            displacements.resize(mpi_env.get_num_ranks());
+            for (int i = 0; i < mpi_env.get_num_ranks(); i++) {
+                displacements[i] = total_count;
+                total_count += all_counts[i];
+            }
+        }
+        
+        // Gather all samples
+        std::vector<double> all_samples;
+        if (mpi_env.is_master()) {
+            all_samples.resize(total_count);
+        }
+        
+        MPI_Gatherv(local_samples.data(), local_count, MPI_DOUBLE,
+                    all_samples.data(), all_counts.data(), displacements.data(), MPI_DOUBLE,
+                    0, MPI_COMM_WORLD);
+        
+        return all_samples;
+    }
+#endif
+    // Serial fallback
+    return local_samples;
+}

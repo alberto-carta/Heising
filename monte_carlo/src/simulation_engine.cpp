@@ -45,12 +45,14 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
         kk_matrix->print_summary();
         // Set energy dispatch pointer to KK version
         energy_dispatch_ptr = &MonteCarloSimulation::calculate_local_energy_implementation<true>;
+        site_energy_dispatch_ptr = &MonteCarloSimulation::calculate_site_energy_implementation<true>;
     }
 
     else {
         std::cout << "No Kugel-Khomskii coupling." << std::endl;
         // Set energy dispatch pointer to non-KK version
         energy_dispatch_ptr = &MonteCarloSimulation::calculate_local_energy_implementation<false>;
+        site_energy_dispatch_ptr = &MonteCarloSimulation::calculate_site_energy_implementation<false>;
     }
     
     // Allocate memory
@@ -171,6 +173,27 @@ double MonteCarloSimulation::calculate_local_energy_implementation(int x, int y,
     return energy;
 }
 
+// Site-based energy calculation - sums energy for all spins at a site
+template <bool use_kk>
+double MonteCarloSimulation::calculate_site_energy_implementation(int x, int y, int z, int site_id) {
+    double energy = 0.0;
+    
+    // Get all spins at this site
+    std::vector<int> spins_at_site = unit_cell.get_spins_at_site(site_id);
+    
+    // Add standard coupling contribution for each spin at this site
+    for (int spin_id : spins_at_site) {
+        energy += compute_coupling_contribution(x, y, z, spin_id);
+    }
+    
+    // Add KK contribution once per site (not per spin)
+    if constexpr (use_kk) {
+        energy += compute_kk_contribution(x, y, z, site_id);
+    }
+    
+    return energy;
+}
+
 // Standard coupling contribution to local energy (J_ij * S_i · S_j)
 double MonteCarloSimulation::compute_coupling_contribution(int x, int y, int z, int spin_id) {
     double energy = 0.0;
@@ -202,6 +225,16 @@ double MonteCarloSimulation::compute_coupling_contribution(int x, int y, int z, 
                     
                     int idx_j = flatten_index(nx, ny, nz, spin_j);
                     const SpinInfo& spin_j_info = unit_cell.get_spin(spin_j);
+                    
+                    // Check if both spins are on the same site at the same position
+                    // If so, only count this interaction from the lower spin_id to avoid double counting
+                    bool same_site_interaction = (spin_i.site_id == spin_j_info.site_id) && 
+                                                  (dx == 0) && (dy == 0) && (dz == 0);
+                    
+                    if (same_site_interaction && spin_j <= spin_id) {
+                        // Skip this pair - it will be (or was) counted from the other spin's perspective
+                        continue;
+                    }
                     
                     // Fast dot product calculation
                     double dot_product = 0.0;
@@ -410,15 +443,16 @@ void MonteCarloSimulation::run_warmup_phase(int warmup_steps) {
     std::cout << "Warmup phase completed." << std::endl;
 }
 
-// Energy calculation
+// Energy calculation - loop over sites to avoid double counting KK
 double MonteCarloSimulation::get_energy() {
     double total_energy = 0.0;
+    int num_sites = unit_cell.get_num_sites();
     
     for (int x = 1; x <= lattice_size; x++) {
         for (int y = 1; y <= lattice_size; y++) {
             for (int z = 1; z <= lattice_size; z++) {
-                for (int spin_id = 0; spin_id < unit_cell.num_spins(); spin_id++) {
-                    total_energy += calculate_local_energy_fast(x, y, z, spin_id); // this is double counting the KK contribution
+                for (int site_id = 0; site_id < num_sites; site_id++) {
+                    total_energy += (this->*site_energy_dispatch_ptr)(x, y, z, site_id);
                 }
             }
         }
@@ -599,21 +633,28 @@ std::vector<double> MonteCarloSimulation::get_spin_correlation_with_first() {
                         int idx_0 = flatten_index(x0, y0, z0, first_ising_idx);
                         double s0 = ising_spins[idx_0];
                         
-                        // Loop over all positions for spin_i
-                        for (int xi = 1; xi <= lattice_size; xi++) {
-                            for (int yi = 1; yi <= lattice_size; yi++) {
-                                for (int zi = 1; zi <= lattice_size; zi++) {
-                                    int idx_i = flatten_index(xi, yi, zi, spin_i);
-                                    double si = ising_spins[idx_i];
+                        // // Loop over all positions for spin_i
+                        // for (int xi = 1; xi <= lattice_size; xi++) {
+                        //     for (int yi = 1; yi <= lattice_size; yi++) {
+                        //         for (int zi = 1; zi <= lattice_size; zi++) {
+                        //             int idx_i = flatten_index(xi, yi, zi, spin_i);
+                        //             double si = ising_spins[idx_i];
                                     
-                                    sum_products += s0 * si;
-                                    num_pairs++;
-                                }
-                            }
-                        }
+                        //             sum_products += s0 * si;
+                        //             num_pairs++;
+                        //         }
+                        //     }
+                        // }
+                        
+                        // compute the correlation inside the same cell
+                        int idx_i = flatten_index(x0, y0, z0, spin_i);
+                        double si = ising_spins[idx_i];
+                        sum_products += s0 * si;
+                        num_pairs++;
                     }
                 }
             }
+            // Average over all pairs
             correlations[spin_i] = sum_products / num_pairs;
             
         } else {
@@ -638,25 +679,36 @@ std::vector<double> MonteCarloSimulation::get_spin_correlation_with_first() {
                         double s0_y = heisenberg_y[idx_0];
                         double s0_z = heisenberg_z[idx_0];
                         
-                        // Loop over all positions for spin_i
-                        for (int xi = 1; xi <= lattice_size; xi++) {
-                            for (int yi = 1; yi <= lattice_size; yi++) {
-                                for (int zi = 1; zi <= lattice_size; zi++) {
-                                    int idx_i = flatten_index(xi, yi, zi, spin_i);
+                        // // Loop over all positions for spin_i
+                        // for (int xi = 1; xi <= lattice_size; xi++) {
+                        //     for (int yi = 1; yi <= lattice_size; yi++) {
+                        //         for (int zi = 1; zi <= lattice_size; zi++) {
+                        //             int idx_i = flatten_index(xi, yi, zi, spin_i);
                                     
-                                    // Get spin_i components
-                                    double si_x = heisenberg_x[idx_i];
-                                    double si_y = heisenberg_y[idx_i];
-                                    double si_z = heisenberg_z[idx_i];
+                        //             // Get spin_i components
+                        //             double si_x = heisenberg_x[idx_i];
+                        //             double si_y = heisenberg_y[idx_i];
+                        //             double si_z = heisenberg_z[idx_i];
                                     
-                                    // Compute dot product
-                                    double dot_product = s0_x * si_x + s0_y * si_y + s0_z * si_z;
+                        //             // Compute dot product
+                        //             double dot_product = s0_x * si_x + s0_y * si_y + s0_z * si_z;
                                     
-                                    sum_dot_products += dot_product;
-                                    num_pairs++;
-                                }
-                            }
-                        }
+                        //             sum_dot_products += dot_product;
+                        //             num_pairs++;
+                        //         }
+                        //     }
+                        // }
+
+                        int idx_i = flatten_index(x0, y0, z0, spin_i);
+                        // Get spin_i components
+                        double si_x = heisenberg_x[idx_i];
+                        double si_y = heisenberg_y[idx_i];
+                        double si_z = heisenberg_z[idx_i];
+
+                        // Compute dot product
+                        double dot_product = s0_x * si_x + s0_y * si_y + s0_z * si_z;
+                        sum_dot_products += dot_product;
+                        num_pairs++;
                     }
                 }
             }

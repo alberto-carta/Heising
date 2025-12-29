@@ -83,6 +83,13 @@ public:
     std::vector<double> accumulate_sum(const std::vector<double>& local_values);
     
     /**
+     * Gather all measurement samples from all ranks to rank 0
+     * Each rank sends its local samples, rank 0 receives concatenated array
+     * Returns concatenated vector on rank 0, empty vector on other ranks
+     */
+    std::vector<double> gather_samples(const std::vector<double>& local_samples);
+    
+    /**
      * Average configuration data across all ranks for temperature continuity
      * All ranks receive the averaged configuration
      */

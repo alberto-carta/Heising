@@ -295,6 +295,8 @@ public:
         
         if (!has_mixed_site) {
             std::cerr << "Warning: No site has mixed spin types. KK coupling requires both spin types at each site." << std::endl;
+
+
         }
 
         // Resize to [num_sites][num_sites][offset_size][offset_size][offset_size]
@@ -315,7 +317,10 @@ public:
         if (!unit_cell.site_has_mixed_types(site_i) || !unit_cell.site_has_mixed_types(site_j)) {
             std::cerr << "Error: KK coupling requires both sites to have mixed spin types. "
                       << "Site " << site_i << " and site " << site_j << " must each have both Ising and Heisenberg spins." << std::endl;
-            return;
+            // raise the error and terminate
+            throw std::runtime_error("KK coupling site type mismatch, cannot set coupling.");
+            std::abort();
+            // return;
         }
 
         if (std::abs(dx) > max_offset || std::abs(dy) > max_offset || std::abs(dz) > max_offset) {

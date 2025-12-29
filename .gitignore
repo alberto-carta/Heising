@@ -4,6 +4,12 @@ meanfield/__pycache__/solvers.cpython-312.pyc
 meanfield/__pycache__/systems.cpython-312.pyc
 meanfield/__pycache__/visualization.cpython-312.pyc
 
+
+monte_carlo/build
+
+# Testing files
+*dump*
+
 # C++ Compiled files
 *.o
 *.obj
