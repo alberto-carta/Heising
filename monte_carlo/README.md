@@ -1,345 +1,249 @@
-# Monte Carlo Simulation for Magnetic Systems
+# Heising - Monte Carlo Simulation for Magnetic Systems
 
-A Monte Carlo simulation engine for magnetic systems supporting Ising and Heisenberg spins with multi-atom unit cells and flexible coupling configurations.
+**Version: 0.1.0-alpha**
+
+A high-performance Monte Carlo simulation engine for magnetic systems supporting Ising and Heisenberg spins with multi-atom unit cells, Kugel-Khomskii interactions, and MPI parallelization.
 
 **Features:**
 - Support for Ising and Heisenberg spins
-- Multi-atom unit cells with flexible coupling matrices
+- Multi-spin unit cells with flexible coupling matrices
+- Kugel-Khomskii (orbital-spin) interactions
 - TOML-based configuration system
-- **MPI parallelization for large-scale simulations** (optional)
+- MPI parallelization with independent walkers
+- Comprehensive diagnostics and profiling
+- Statistical analysis with proper error bars
 
-## TODO
+## Status
 
-* Implement Kugel-Khomskii hamiltonian
-* Consider parallel tempering for improved sampling at low temperatures.
-* We can try and have a look at ways to treat phonons in some effective manner,
-  perhaps via using some phonon density of states to sample from at each step.
+**Alpha Release** - Core functionality implemented and tested. API may change.
 
-  So normal metropolis update for MC step is 
-    if $\Delta E < 0$ accept else accept with probability $exp(-\Delta E / kT)$
-  New way would be:
-    if $\Delta E < 0$ accept with probability proportional to the phonon DOS $D(\Delta E)$ at energy $\Delta E$
-    else accept with probability $exp(-\Delta E / kT) \cdot D(\Delta E)$
+## TODO / Roadmap
+
+* **Enhanced Sampling:**
+  - Consider parallel tempering for improved sampling at low temperatures
+  - Replica exchange Monte Carlo for phase transition studies
+  
+* **Phonon Coupling (Exploratory):**
+  - Effective phonon treatment using phonon density of states
+  - Modified acceptance criterion weighted by phonon DOS D(ΔE)
 
 ## Requirements
 
-### Core Requirements
-- **C++11 compatible compiler** (g++, clang++)
-- **Eigen3 library** (linear algebra)
-- **toml11 library** (header-only, included in project)
-- **Standard math library** (libm)
-
-### Optional: MPI for Parallel Execution
-- **OpenMPI** or **MPICH** (for parallel simulations with multiple walkers)
+### Core Dependencies
+- **C++17 compatible compiler** (g++ 7+, clang++ 5+)
+- **CMake 3.10+** (build system)
+- **Eigen3** (linear algebra, header-only)
+- **toml11** (TOML parser, header-only)
+- **MPI** (OpenMPI or MPICH)
 
 ### Ubuntu/Debian Installation
 ```bash
 sudo apt update
-sudo apt install build-essential libeigen3-dev
-
-# Optional: for MPI support
-sudo apt install libopenmpi-dev openmpi-bin
+sudo apt install build-essential cmake
+sudo apt install libeigen3-dev libopenmpi-dev openmpi-bin libtoml11-dev
 ```
 
-### Other Linux Distributions
-- **Fedora/RHEL**: `sudo dnf install gcc-c++ eigen3-devel`
-- **Arch**: `sudo pacman -S gcc eigen`
-- **macOS**: `brew install gcc eigen` (or use clang)
-
-## Quick Start
-
-### 1. Build the Code
-
-Build both serial and MPI versions (if MPI is available):
+### Fedora/RHEL
 ```bash
-make
+sudo dnf install gcc-c++ cmake eigen3-devel openmpi-devel
 ```
 
-The Makefile automatically detects if MPI is installed:
-- **Serial version**: `build/generic_simulation` (always built)
-- **MPI version**: `build/generic_simulation_mpi` (built only if MPI is detected)
-
-To build only the serial version:
+### macOS
 ```bash
-make serial
+brew install cmake eigen open-mpi
 ```
 
-To check MPI availability and get usage help:
-```bash
-make mpi-help
-```
+## Building with CMake
 
-### 2. Run a Simulation
-
-#### Serial Execution
-
-The simulation is configured using TOML files. Examples are provided:
-
-**Example 1: Ising Ferromagnet**
-```bash
-./build/generic_simulation examples/ising_ferromagnet/simulation.toml
-```
-
-**Example 2: Heisenberg Ferromagnet**
-```bash
-./build/generic_simulation examples/heisenberg_ferromagnet/simulation.toml
-```
-
-#### MPI Parallel Execution
-
-Run with multiple independent walkers for better statistics:
+### Quick Start
 
 ```bash
-# Run with 4 independent walkers
-mpirun -np 4 ./build/generic_simulation_mpi examples/heisenberg_ferromagnet/simulation.toml
-
-# Run with 8 walkers
-mpirun -np 8 ./build/generic_simulation_mpi examples/heisenberg_ferromagnet/simulation.toml
+# From monte_carlo directory
+mkdir build
+cd build
+cmake ..
+make heising       # Build main executable (heising.x)
+make tests         # Build test suite
+make run_tests     # Build and run all tests
 ```
 
-**Key features of MPI parallelization:**
-- Each MPI rank runs an independent Monte Carlo walker with different random seed
-- Statistics are accumulated across all walkers for improved sampling
-- Between temperature steps, configurations are averaged across walkers
-- Master rank (rank 0) handles all file I/O
-- Ideal for embarrassingly parallel Monte Carlo simulations
+### Build Targets
 
-**Performance tip:** Use 4-16 walkers for typical simulations. More walkers = better statistics with linear scaling.
+- `make heising.x` or `make heising` - Build main MPI-parallel executable
+- `make tests` - Build all test executables
+- `make run_tests` - Build and run all tests with output
+- `make test` - Run tests using CTest
+- `make unit_tests` - Build only unit tests
+- `make io_tests` - Build only I/O tests
 
-### 3. Analyze Results
+### CMake Configuration
 
-Use the provided Python scripts to plot the results:
+CMake will automatically detect all dependencies. If a dependency is missing, you'll see a clear error message with installation instructions.
+
+**Verify configuration:**
 ```bash
-cd ../analysis_tools
-python analyze_ferromagnets.py
+cmake ..
 ```
 
-This generates plots showing magnetization, energy, specific heat, and susceptibility as functions of temperature.
-
-## Project Structure
-
+You should see:
 ```
-monte_carlo/
-├── src/                    # Core implementation
-│   ├── simulation_engine.cpp
-│   ├── spin_operations.cpp
-│   ├── random.cpp
-│   ├── mpi_wrapper.cpp     # MPI parallelization support
-│   └── io/
-│       └── configuration_parser.cpp
-├── include/                # Header files
-│   ├── simulation_engine.h
-│   ├── multi_atom.h
-│   ├── multi_spin.h
-│   ├── spin_operations.h
-│   ├── spin_types.h
-│   ├── random.h
-│   ├── mpi_wrapper.h       # MPI interface
-│   └── io/
-│       ├── configuration_parser.h
-│       └── config_types.h
-├── tests/                  # Unit tests
-│   └── unit_tests.cpp
-├── benchmarks/             # Performance tests
-│   └── performance_test.cpp
-├── examples/               # Example configurations
-│   ├── heisenberg_ferromagnet/
-│   ├── ising_ferromagnet/
-│   └── mixed_system/
-├── build/                  # Compiled binaries
-│   ├── generic_simulation      # Serial version
-│   └── generic_simulation_mpi  # MPI version (if available)
-└── Makefile
+========================================
+Heising Configuration Summary
+========================================
+MPI found:        TRUE
+Eigen3 found:     TRUE
+Eigen3 location:  /usr/include/eigen3
+toml11 location:  /usr/include
+========================================
 ```
 
-## MPI Parallelization Details
-
-### Architecture
-
-The MPI implementation uses a **walker-based parallelization** strategy:
-
-1. **Independent Walkers**: Each MPI rank runs a completely independent Monte Carlo simulation
-2. **Different Seeds**: Each walker uses a rank-specific random seed for independent sampling
-3. **Statistics Accumulation**: All observables are summed across ranks using `MPI_Reduce`
-4. **Configuration Averaging**: Between temperature steps, spin configurations are averaged across all walkers using `MPI_Allreduce`
-5. **Master I/O**: Only rank 0 writes output files
-
-### Key Benefits
-
-- **Embarrassingly parallel**: Perfect for Monte Carlo with linear scaling
-- **Better statistics**: Multiple independent walkers improve sampling
-- **Minimal code changes**: Core simulation engine remains unchanged
-- **Automatic fallback**: Same code compiles to serial version without MPI
-
-### Implementation Files
-
-- `include/mpi_wrapper.h`, `src/mpi_wrapper.cpp`: MPI abstraction layer
-- `generic_simulation.cpp`: MPI-aware main program with `#ifdef USE_MPI` guards
-- `Makefile`: Automatic MPI detection and conditional compilation
-
-## Usage Examples
-
-### Single Atom Systems
-
-```cpp
-#include "simulation_engine.h"
-#include "multi_atom.h"
-
-// Create Ising model
-UnitCell ising_cell = create_unit_cell(SpinType::ISING);
-CouplingMatrix ising_couplings = create_nn_couplings(1, -1.0);  // Ferromagnetic
-MonteCarloSimulation ising_sim(ising_cell, ising_couplings, 8, 2.0);
-
-// Create Heisenberg model  
-UnitCell heisenberg_cell = create_unit_cell(SpinType::HEISENBERG);
-CouplingMatrix heisenberg_couplings = create_nn_couplings(1, 1.0);  // Antiferromagnetic
-MonteCarloSimulation heisenberg_sim(heisenberg_cell, heisenberg_couplings, 8, 2.0);
-```
-
-### Multi-Atom Systems
-
-```cpp
-// Create 4-atom unit cell
-UnitCell multi_cell;
-multi_cell.add_atom("Fe1", SpinType::HEISENBERG, 2.0);
-multi_cell.add_atom("Fe2", SpinType::HEISENBERG, 2.0);
-multi_cell.add_atom("Mn1", SpinType::ISING, 1.0);
-multi_cell.add_atom("Mn2", SpinType::ISING, 1.0);
-
-// Flexible coupling matrix
-CouplingMatrix multi_couplings;
-multi_couplings.initialize(4, 2);  // 4 atoms, max_offset = 2
-
-// Intra-cell couplings
-multi_couplings.set_intra_coupling(0, 1, -2.0);  // Fe1-Fe2 strong FM
-multi_couplings.set_intra_coupling(2, 3, -1.0);  // Mn1-Mn2 FM
-multi_couplings.set_intra_coupling(0, 2, 0.5);   // Fe1-Mn1 weak AFM
-
-// Inter-cell nearest neighbors
-for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 4; j++) {
-        multi_couplings.set_nn_couplings(i, j, -0.1);  // Weak inter-cell FM
-    }
-}
-
-MonteCarloSimulation multi_sim(multi_cell, multi_couplings, 6, 1.5);
-```
+## Usage
 
 ### Running Simulations
 
-```cpp
-// Initialize and equilibrate
-sim.initialize_lattice();
-for (int i = 0; i < 10000; i++) {
-    sim.run_monte_carlo_step();  // Warmup
-}
-
-// Measure properties
-sim.reset_statistics();
-for (int i = 0; i < 100000; i++) {
-    sim.run_monte_carlo_step();
-    
-    if (i % 1000 == 0) {
-        double energy = sim.get_energy();
-        double magnetization = sim.get_absolute_magnetization();
-        double acceptance = sim.get_acceptance_rate();
-        
-        // Process measurements...
-    }
-}
-```
-
-## Build System
-
-### Available Targets
-- `make all` - Build everything (main program, tests, benchmarks)
-- `make main` - Build main simulation program only
-- `make test` - Build and run unit tests
-- `make benchmark` - Build and run performance benchmarks  
-- `make run` - Build and run interactive simulation
-- `make clean` - Remove all build artifacts
-- `make check-deps` - Verify required dependencies
-- `make help` - Show detailed help
-
-### Build Configurations
-- `make debug` - Debug build with symbols and assertions
-- `make profile` - Profiling build with gprof support
-- `make install-deps` - Install dependencies (Ubuntu/Debian only)
-
-### Command Line Options
 ```bash
-./build/monte_carlo_sim --size 16 --tmax 5.0 --tmin 0.5 --coupling -1.0
+# Run with MPI (2 walkers)
+mpirun -np 2 ./heising.x configuration.toml
+
+# Run single walker (still requires MPI)
+./heising.x configuration.toml
 ```
 
-## Performance Characteristics
+### Configuration Files
 
-### Computational Efficiency
-- **Local energy calculation**: ~2-5 μs per call (depends on coupling range)
-- **Monte Carlo steps**: 
-  - Ising: ~50,000 steps/sec  
-  - Heisenberg: ~30,000 steps/sec
-  - Multi-atom: ~20,000 steps/sec
-- **Memory usage**: Scales as (2×max_offset+1)³ per atom pair
+See `examples/` directory for sample configurations:
+- `heisenberg_ferromagnet/` - Simple ferromagnetic system
+- `ising_ferromagnet/` - Ising model
+- `mixed_ferromagnet/` - Mixed Heisenberg+Ising spins
+- `kk_ferromagnet/` - System with Kugel-Khomskii interactions
 
-### Memory Optimization
-| System Type | Old Fixed | New Dynamic | Reduction |
-|------------|-----------|-------------|-----------|
-| Nearest neighbors | 2.7 KB | 0.2 KB | 13x |
-| Next-nearest neighbors | 2.7 KB | 1.0 KB | 3x |
-| Extended range (±3) | 2.7 KB | 2.7 KB | 1x |
+### Basic Configuration
 
-## Algorithm Details
+Create a `simulation.toml` file:
 
-### Energy Calculation
-- **Ising**: E = -∑ᵢⱼ Jᵢⱼ σᵢ σⱼ 
-- **Heisenberg**: E = -∑ᵢⱼ Jᵢⱼ **S**ᵢ · **S**ⱼ
-- **Mixed**: Handles Ising-Heisenberg interactions naturally
+```toml
+[simulation]
+type = "temperature_scan"  # or "single_temperature"
+seed = -12345
 
-### Monte Carlo Updates
-- **Ising**: Random spin flip (σ → -σ)
-- **Heisenberg**: Small random rotation with adjustable angle
-- **Metropolis acceptance**: P = min(1, exp(-ΔE/kT))
+[lattice]
+size = 8  # 8×8×8 lattice
 
-### Lattice Structure
-- **3D cubic lattice** with periodic boundary conditions
-- **Multi-atom unit cells** with flexible atom positioning
-- **Configurable interaction ranges** up to any offset
+[monte_carlo]
+warmup_steps = 8000
+measurement_steps = 80000
+sampling_frequency = 100
+
+[temperature]
+max = 6.0
+min = 0.5
+step = 0.2
+
+[output]
+base_name = "my_simulation"
+directory = "."
+output_energy_total = true
+output_onsite_magnetization = true
+output_correlations = true
+
+[input_files]
+species = "species.dat"
+couplings = "couplings.dat"
+
+[initialization]
+type = "random"  # or "custom" with pattern = [...]
+```
+
+## Output
+
+The simulation produces two files:
+- `{base_name}_observables.out` - Mean values of all observables
+- `{base_name}_observables_stddev.out` - Standard deviations
+
+Observables include:
+- Energy per spin
+- Total magnetization
+- Specific heat
+- Susceptibility
+- Acceptance rate
+- Per-spin magnetization (optional)
+- Spin correlations (optional)
 
 ## Testing
 
-### Unit Tests (`make test`)
-- Multi-atom lattice creation and spin access
-- Energy calculation correctness vs. analytical results
-- Metropolis algorithm validation
-- Mixed spin type handling
-- Dynamic coupling matrix scaling
+Run the test suite to verify installation:
 
-### Performance Tests (`make benchmark`)
-- Local energy computation time vs. neighbor count
-- Lattice setup time vs. system size  
-- Monte Carlo step performance for different spin types
-- Memory usage analysis and scaling
+```bash
+cd build
+make run_tests
+```
 
-## Data Analysis
+All tests should pass:
+```
+Test project /path/to/build
+    Start 1: UnitTests
+1/2 Test #1: UnitTests ........................   Passed    0.05 sec
+    Start 2: IOTests
+2/2 Test #2: IOTests ..........................   Passed    0.02 sec
 
-Python analysis tools are provided in `analysis_tools/`:
-- `analyze_mc.py` - Process Monte Carlo output data
-- `analyze_results.py` - Generate plots and statistics
-- `plots/` - Visualization utilities
+100% tests passed, 0 tests failed out of 2
+```
 
-## Contributing
+## Performance Tips
 
-1. **Code Style**: Follow existing conventions (PEP 8 for Python, Google C++ style)
-2. **Testing**: Add tests for new functionality
-3. **Performance**: Profile before and after changes
-4. **Documentation**: Update README and inline comments
+- Use MPI parallelization with multiple walkers (typically 2-8)
+- Adjust `sampling_frequency` based on autocorrelation time
+- Enable profiling to identify bottlenecks: `enable_profiling = true`
+- For large systems, reduce `output_correlations` if not needed
+
+## Troubleshooting
+
+### MPI not found
+```bash
+sudo apt install libopenmpi-dev openmpi-bin
+```
+
+### Eigen3 not found
+```bash
+sudo apt install libeigen3-dev
+```
+
+### toml11 not found
+```bash
+# Option 1: System package
+sudo apt install libtoml11-dev
+
+# Option 2: Manual installation
+git clone https://github.com/ToruNiina/toml11.git
+sudo cp toml11/toml.hpp /usr/local/include/
+```
+
+### Build fails with C++17 errors
+Ensure you have a recent compiler:
+```bash
+g++ --version  # Should be 7.0 or newer
+```
+
+## Citation
+
+If you use this code in your research, please cite:
+
+```
+Heising Monte Carlo Simulation Package (v0.1.0-alpha)
+https://github.com/alberto-carta/Heising
+```
 
 ## License
 
-This project is part of the Heising magnetic system calculations. See project documentation for licensing details.
+[Add license information]
 
-## References
+## Authors
 
-- Monte Carlo Methods in Statistical Physics (Newman & Barkema)
-- Computational Physics of Phase Transitions (Landau & Binder)  
-- Eigen3 Documentation: https://eigen.tuxfamily.org/
+Alberto Carta
+
+## Acknowledgments
+
+This project uses:
+- [Eigen3](https://eigen.tuxfamily.org/) for linear algebra
+- [toml11](https://github.com/ToruNiina/toml11) for TOML parsing
+- [OpenMPI](https://www.open-mpi.org/) for parallelization

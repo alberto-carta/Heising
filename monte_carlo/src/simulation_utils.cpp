@@ -142,11 +142,17 @@ std::optional<KK_Matrix> create_kk_matrix_from_config(const std::vector<IO::KKCo
         }
         
         // Add KK coupling for specified unit cell offset
-        kk_matrix.set_coupling(site1_id, site2_id,
-                              kk.cell_offset[0],
-                              kk.cell_offset[1],
-                              kk.cell_offset[2],
-                              kk.K);
+        try {
+            kk_matrix.set_coupling(site1_id, site2_id,
+                                  kk.cell_offset[0],
+                                  kk.cell_offset[1],
+                                  kk.cell_offset[2],
+                                  kk.K);
+        } catch (const std::runtime_error& e) {
+            // Skip invalid KK couplings (e.g., sites without mixed spin types)
+            std::cerr << "WARNING: Skipping invalid KK coupling: " << e.what() << std::endl;
+            continue;
+        }
     }
     
     if (truncated_kk > 0) {

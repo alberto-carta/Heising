@@ -132,6 +132,13 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
         if (data.contains("simulation")) {
             const auto sim = toml::find(data, "simulation");
             config.simulation_type = toml::find_or<std::string>(sim, "type", "temperature_scan");
+            
+            // Validate simulation type
+            if (config.simulation_type != "single_temperature" && config.simulation_type != "temperature_scan") {
+                throw ConfigurationError("Invalid simulation type: '" + config.simulation_type + 
+                                       "'. Allowed values: 'single_temperature', 'temperature_scan'");
+            }
+            
             config.monte_carlo.seed = toml::find_or<long>(sim, "seed", -12345);
         }
         

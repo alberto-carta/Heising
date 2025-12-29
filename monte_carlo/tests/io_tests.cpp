@@ -10,8 +10,16 @@
 #include <iostream>
 #include <cassert>
 #include <cmath>
+#include <string>
 
 using namespace IO;
+
+// Test data directory (set at compile time)
+#ifndef TEST_DATA_DIR
+#define TEST_DATA_DIR "tests/io_test_data"
+#endif
+
+const std::string test_data_dir = TEST_DATA_DIR;
 
 // Global seed (required by random.cpp)
 long int seed = -12345;
@@ -38,7 +46,7 @@ bool test_ferromagnetic_loading() {
     
     try {
         SimulationConfig config = ConfigurationParser::load_configuration(
-            "tests/io_test_data/ferromagnet/simulation.toml");
+            test_data_dir + "/ferromagnet/simulation.toml");
         
         // Verify species loaded correctly
         if (config.species.size() != 1) {
@@ -108,7 +116,7 @@ bool test_antiferromagnetic_loading() {
     
     try {
         SimulationConfig config = ConfigurationParser::load_configuration(
-            "tests/io_test_data/antiferromagnet/simulation.toml");
+            test_data_dir + "/antiferromagnet/simulation.toml");
         
         // Verify couplings are positive (AFM)
         for (const auto& coupling : config.couplings) {
@@ -161,7 +169,7 @@ bool test_kk_coupling_loading() {
     
     try {
         SimulationConfig config = ConfigurationParser::load_configuration(
-            "tests/io_test_data/kk_system/simulation.toml");
+            test_data_dir + "/kk_system/simulation.toml");
         
         // Verify species (should have 2: 1 Heisenberg + 1 Ising)
         if (config.species.size() != 2) {
@@ -228,7 +236,7 @@ bool test_species_mismatch_error() {
     
     try {
         SimulationConfig config = ConfigurationParser::load_configuration(
-            "tests/io_test_data/invalid_mismatch/simulation.toml");
+            test_data_dir + "/invalid_mismatch/simulation.toml");
         
         std::cerr << "ERROR: Should have thrown ConfigurationError for species mismatch" << std::endl;
         return false;
@@ -250,7 +258,7 @@ bool test_invalid_kk_system() {
     
     try {
         SimulationConfig config = ConfigurationParser::load_configuration(
-            "tests/io_test_data/invalid_kk/simulation.toml");
+            test_data_dir + "/invalid_kk/simulation.toml");
         
         // Configuration loads fine, but KK matrix creation should fail gracefully
         UnitCell unit_cell = create_unit_cell_from_config(config.species);
@@ -286,7 +294,7 @@ bool test_kk_wrong_spin_types() {
     
     try {
         SimulationConfig config = ConfigurationParser::load_configuration(
-            "tests/io_test_data/invalid_kk_types/simulation.toml");
+            test_data_dir + "/invalid_kk_types/simulation.toml");
         
         UnitCell unit_cell = create_unit_cell_from_config(config.species);
         CouplingMatrix couplings = create_couplings_from_config(config.couplings, config.species, 4);
