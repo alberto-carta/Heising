@@ -85,6 +85,11 @@ struct TemperatureConfig {
     double max_temp;
     double min_temp;
     double temp_step;
+    
+    // Whether to restart from previous temperature's final configuration
+    // If true: each new T starts from the equilibrated config of previous T
+    // If false: each T starts from fresh initialization
+    bool restart_from_previous_T = false;
 };
 
 /**

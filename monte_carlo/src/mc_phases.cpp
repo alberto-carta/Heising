@@ -46,9 +46,14 @@ std::pair<double, double> run_warmup_phase(
     bool enable_profiling,
     int rank
 ) {
+    double initial_energy = sim.get_energy();
+
     if (rank == 0) {
         std::cout << "Warmup phase" << std::endl;
+        std::cout << " Energy of the initial configuration: " << std::fixed << std::setprecision(6)
+                  << initial_energy << std::endl;
     }
+
     
     auto warmup_start = std::chrono::high_resolution_clock::now();
     double mc_step_time_estimate = 0.0;

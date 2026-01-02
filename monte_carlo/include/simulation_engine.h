@@ -99,6 +99,10 @@ public:
     // Check if Kugel-Khomskii coupling is present
     bool has_kugel_khomskii() const { return kk_matrix.has_value(); }
     
+    // Temperature control
+    void set_temperature(double T) { temperature = T; }
+    double get_temperature() const { return temperature; }
+    
     // Main methods
     void initialize_lattice_custom(const std::vector<double>& pattern);
     void initialize_lattice_random();

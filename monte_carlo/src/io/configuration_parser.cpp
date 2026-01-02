@@ -24,6 +24,7 @@
  *   max = 6.0                           # Maximum temperature
  *   min = 0.5                           # Minimum temperature
  *   step = 0.2                          # Temperature step size
+ *   restart_from_previous_T = false     # If true, start each T from previous T's final config (default: false)
  * 
  * [output]
  *   base_name = "simulation"            # Output file base name
@@ -171,6 +172,9 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
                 config.temperature.min_temp = toml::find_or<double>(temp, "min", 0.5);
                 config.temperature.temp_step = toml::find_or<double>(temp, "step", 0.2);
             }
+            
+            // Parse restart_from_previous_T flag (applies to temperature scan)
+            config.temperature.restart_from_previous_T = toml::find_or<bool>(temp, "restart_from_previous_T", false);
         } else {
             // Default to temperature scan
             config.temperature.type = TemperatureConfig::SCAN;

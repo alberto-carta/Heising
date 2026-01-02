@@ -74,8 +74,12 @@ void initialize_simulation(MonteCarloSimulation& sim, const IO::InitializationCo
 /**
  * Run simulation at a single temperature with MPI parallelization
  * This is the core function called by both single_temperature and temperature_scan modes
+ * 
+ * @param sim Pointer to existing simulation (if continuing from previous T) or nullptr to create new
+ * @return Pair of (results, simulation pointer) - caller owns the simulation if created
  */
-TemperatureResults run_temperature_point(
+std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
+    MonteCarloSimulation* sim,
     double T,
     const IO::SimulationConfig& config,
     const UnitCell& unit_cell,
@@ -99,28 +103,43 @@ TemperatureResults run_temperature_point(
     
     auto t_start = std::chrono::high_resolution_clock::now();
     
-    // Each rank creates its own simulation with rank-specific seed
-    long int rank_seed = get_rank_seed(config.monte_carlo.seed, rank);
-    seed = rank_seed;
+    // Create new simulation or update temperature of existing one
+    bool created_new_sim = false;
+    if (sim == nullptr) {
+        // Create new simulation with rank-specific seed
+        long int rank_seed = get_rank_seed(config.monte_carlo.seed, rank);
+        seed = rank_seed;
+        sim = new MonteCarloSimulation(unit_cell, couplings, config.lattice_size, T, kk_matrix);
+        created_new_sim = true;
+    } else {
+        // Update temperature of existing simulation
+        sim->set_temperature(T);
+        if (rank == 0) {
+            std::cout << "  Updated temperature to T = " << T << std::endl;
+        }
+    }
     
-    MonteCarloSimulation sim(unit_cell, couplings, config.lattice_size, T, kk_matrix);
-    
-    // Initialization
-    if (first_temperature) {
+    // Initialization (only for new simulation or first temperature)
+    if (created_new_sim || first_temperature) {
         if (rank == 0) {
             std::cout << "  Initializing all walkers..." << std::endl;
         }
-        initialize_simulation(sim, config.initialization);
-    } else {
-        // All ranks initialize and then average their configurations
+        initialize_simulation(*sim, config.initialization);
+    } else if (!config.temperature.restart_from_previous_T) {
+        // Re-initialize if not restarting from previous T
         if (rank == 0) {
             std::cout << "  Averaging configurations from all walkers..." << std::endl;
         }
-        initialize_simulation(sim, config.initialization);
-        average_configuration_mpi(sim, config.species, mpi_accumulator);
+        initialize_simulation(*sim, config.initialization);
+        average_configuration_mpi(*sim, config.species, mpi_accumulator);
         mpi_env.barrier();
         if (rank == 0) {
             std::cout << "  All walkers synchronized with averaged configuration." << std::endl;
+        }
+    } else {
+        // Continuing from previous temperature's configuration
+        if (rank == 0) {
+            std::cout << "  Continuing from previous temperature configuration..." << std::endl;
         }
     }
     
@@ -130,13 +149,13 @@ TemperatureResults run_temperature_point(
     }
     
     // Warmup phase
-    auto [warmup_time, mc_step_estimate] = run_warmup_phase(sim, config.monte_carlo.warmup_steps, 
+    auto [warmup_time, mc_step_estimate] = run_warmup_phase(*sim, config.monte_carlo.warmup_steps, 
                                                               total_spins, config.diagnostics.enable_profiling, rank);
     results.timings.warmup_time = warmup_time;
     results.timings.mc_step_time_estimate = mc_step_estimate;
     
     // Measurement phase
-    auto [measurement_data, measurement_time] = run_measurement_phase(sim, config, measurement_steps_per_rank,
+    auto [measurement_data, measurement_time] = run_measurement_phase(*sim, config, measurement_steps_per_rank,
                                                                         total_spins, T, rank, dump_dir);
     results.timings.measurement_time = measurement_time;
     
@@ -288,7 +307,7 @@ TemperatureResults run_temperature_point(
     // Synchronize before returning
     mpi_env.barrier();
     
-    return results;
+    return {results, sim};
 }
 
 /**
@@ -319,13 +338,17 @@ void run_single_temperature(const IO::SimulationConfig& config,
     mpi_env.barrier();
     
     // Run simulation at single temperature
-    TemperatureResults results = run_temperature_point(
+    auto [results, sim_ptr] = run_temperature_point(
+        nullptr,  // Create new simulation
         config.temperature.value,
         config, unit_cell, couplings, kk_matrix,
         mpi_env, mpi_accumulator,
         true,  // first_temperature
         dump_dir
     );
+    
+    // Clean up
+    delete sim_ptr;
     
     // Output results (only rank 0)
     if (rank == 0) {
@@ -464,22 +487,38 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     
     if (rank == 0) {
         IO::print_section_separator("TEMPERATURE SCAN");
+        if (config.temperature.restart_from_previous_T) {
+            std::cout << "Configuration: Restart from previous T (continuing from equilibrated config)" << std::endl;
+        } else {
+            std::cout << "Configuration: Fresh initialization at each T" << std::endl;
+        }
     }
     
     // Temperature scan loop
     bool first_temperature = true;
+    MonteCarloSimulation* sim = nullptr;  // Will persist across temperatures if restart_from_previous_T=true
+    
     for (double T = config.temperature.max_temp; T >= config.temperature.min_temp; T -= config.temperature.temp_step) {
         if (rank == 0) {
             std::cout << "\nT = " << std::fixed << std::setprecision(2) << T << std::endl;
         }
         
         // Run simulation at this temperature
-        TemperatureResults results = run_temperature_point(
+        // If restart_from_previous_T=true, pass existing sim; otherwise pass nullptr to create fresh
+        auto [results, sim_ptr] = run_temperature_point(
+            config.temperature.restart_from_previous_T ? sim : nullptr,
             T, config, unit_cell, couplings, kk_matrix,
             mpi_env, mpi_accumulator,
             first_temperature,
             dump_dir
         );
+        
+        // Update sim pointer if restarting from previous T
+        if (config.temperature.restart_from_previous_T) {
+            sim = sim_ptr;  // Keep the simulation alive for next iteration
+        } else {
+            delete sim_ptr;  // Clean up immediately if not reusing
+        }
         
         first_temperature = false;
         
@@ -566,6 +605,11 @@ void run_temperature_scan(const IO::SimulationConfig& config,
         
         // Store timings
         all_timings.push_back(results.timings);
+    }
+    
+    // Clean up simulation object if it was kept alive
+    if (config.temperature.restart_from_previous_T && sim != nullptr) {
+        delete sim;
     }
     
     // Print comprehensive profiling report
