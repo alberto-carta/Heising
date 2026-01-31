@@ -158,10 +158,12 @@ public:
     }
 
 
-    // 
+    // spin based energy calculation  
     inline double calculate_local_energy_fast(int x, int y, int z, int spin_id) {
         return (this->*energy_dispatch_ptr)(x, y, z, spin_id);
     }
+
+    // needs implementing of site based energy calculation
 };
 
 #endif // SIMULATION_ENGINE_H

@@ -112,6 +112,19 @@ void write_observable_evolution(std::ofstream& file,
                                 const std::vector<double>& correlations,
                                 double acceptance_rate);
 
+/**
+ * Load configuration from a dumped configuration file
+ * 
+ * @param sim Monte Carlo simulation object
+ * @param species Vector of magnetic species
+ * @param lattice_size Size of lattice
+ * @param config_file Path to configuration file
+ */
+void load_configuration_from_file(MonteCarloSimulation& sim,
+                                  const std::vector<MagneticSpecies>& species,
+                                  int lattice_size,
+                                  const std::string& config_file);
+
 } // namespace IO
 
 #endif // DIAGNOSTIC_UTILS_H

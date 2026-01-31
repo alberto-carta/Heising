@@ -21,6 +21,7 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <sstream>
 #include <cmath>
 #include <vector>
 #include <chrono>
@@ -52,7 +53,8 @@ struct TemperatureResults {
 /**
  * Initialize simulation based on configuration
  */
-void initialize_simulation(MonteCarloSimulation& sim, const IO::InitializationConfig& init_config) {
+void initialize_simulation(MonteCarloSimulation& sim, const IO::InitializationConfig& init_config,
+                          const std::vector<IO::MagneticSpecies>& species, int lattice_size) {
     switch (init_config.type) {
         case IO::InitializationConfig::RANDOM:
             sim.initialize_lattice_random();
@@ -63,6 +65,21 @@ void initialize_simulation(MonteCarloSimulation& sim, const IO::InitializationCo
                 sim.initialize_lattice_random();  // Fall back to random
             } else {
                 sim.initialize_lattice_custom(init_config.pattern);
+            }
+            break;
+        case IO::InitializationConfig::FILE:
+            if (init_config.initialization_file_path.empty()) {
+                std::cerr << "ERROR: FILE initialization requires 'initialization_file_path' in config" << std::endl;
+                sim.initialize_lattice_random();  // Fall back to random
+            } else {
+                try {
+                    IO::load_configuration_from_file(sim, species, lattice_size, 
+                                                     init_config.initialization_file_path);
+                } catch (const std::exception& e) {
+                    std::cerr << "ERROR loading configuration from file: " << e.what() << std::endl;
+                    std::cerr << "Falling back to random initialization" << std::endl;
+                    sim.initialize_lattice_random();
+                }
             }
             break;
         default:
@@ -124,13 +141,36 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
         if (rank == 0) {
             std::cout << "  Initializing all walkers..." << std::endl;
         }
-        initialize_simulation(*sim, config.initialization);
+        initialize_simulation(*sim, config.initialization, config.species, config.lattice_size);
+        
+        // Dump initial configuration right after initialization if requested
+        if (config.diagnostics.dump_initial_config && config.diagnostics.should_dump_rank(rank)) {
+            if (rank == 0) {
+                std::ostringstream filename;
+                filename << "config_rank" << rank << "_T" << std::fixed << std::setprecision(2) << T << "_meas-1.dat";
+                std::cout << "  Dumping initial configuration to: " << dump_dir << "/" << filename.str() << std::endl;
+            }
+            IO::dump_configuration_to_file(*sim, config.species, config.lattice_size,
+                                           T, -1, rank, dump_dir);  // Use -1 to indicate initialization
+        }
     } else if (!config.temperature.restart_from_previous_T) {
         // Re-initialize if not restarting from previous T
         if (rank == 0) {
             std::cout << "  Averaging configurations from all walkers..." << std::endl;
         }
-        initialize_simulation(*sim, config.initialization);
+        initialize_simulation(*sim, config.initialization, config.species, config.lattice_size);
+        
+        // Dump initial configuration right after initialization if requested
+        if (config.diagnostics.dump_initial_config && config.diagnostics.should_dump_rank(rank)) {
+            if (rank == 0) {
+                std::ostringstream filename;
+                filename << "config_rank" << rank << "_T" << std::fixed << std::setprecision(2) << T << "_meas-1.dat";
+                std::cout << "  Dumping initial configuration to: " << dump_dir << "/" << filename.str() << std::endl;
+            }
+            IO::dump_configuration_to_file(*sim, config.species, config.lattice_size,
+                                           T, -1, rank, dump_dir);  // Use -1 to indicate initialization
+        }
+        
         average_configuration_mpi(*sim, config.species, mpi_accumulator);
         mpi_env.barrier();
         if (rank == 0) {
@@ -331,7 +371,9 @@ void run_single_temperature(const IO::SimulationConfig& config,
     
     // Setup diagnostics
     std::string dump_dir = config.output.directory + "/dumps";
-    if (rank == 0 && (config.diagnostics.enable_config_dump || config.diagnostics.enable_observable_evolution)) {
+    if (rank == 0 && (config.diagnostics.enable_config_dump || 
+                      config.diagnostics.enable_observable_evolution ||
+                      config.diagnostics.dump_initial_config)) {
         IO::create_directory(config.output.directory);
         IO::create_directory(dump_dir);
     }
@@ -475,7 +517,9 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     
     // Setup diagnostics
     std::string dump_dir = config.output.directory + "/dumps";
-    if (rank == 0 && (config.diagnostics.enable_config_dump || config.diagnostics.enable_observable_evolution)) {
+    if (rank == 0 && (config.diagnostics.enable_config_dump || 
+                      config.diagnostics.enable_observable_evolution ||
+                      config.diagnostics.dump_initial_config)) {
         IO::create_directory(config.output.directory);
         IO::create_directory(dump_dir);
         std::cout << "  Dump directory created: " << dump_dir << std::endl;

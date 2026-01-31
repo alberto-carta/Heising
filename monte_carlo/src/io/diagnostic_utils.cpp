@@ -8,6 +8,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <map>
 
 namespace IO {
 
@@ -177,6 +178,99 @@ void write_observable_evolution(std::ofstream& file,
         file << " " << corr;
     }
     file << " " << acceptance_rate << std::endl;
+}
+
+void load_configuration_from_file(MonteCarloSimulation& sim,
+                                  const std::vector<MagneticSpecies>& species,
+                                  int lattice_size,
+                                  const std::string& config_file) {
+    std::ifstream infile(config_file);
+    if (!infile.is_open()) {
+        throw std::runtime_error("Cannot open configuration file: " + config_file);
+    }
+    
+    // Create a map from species name to spin_id
+    std::map<std::string, size_t> species_name_to_id;
+    for (size_t i = 0; i < species.size(); i++) {
+        species_name_to_id[species[i].name] = i;
+    }
+    
+    std::string line;
+    int line_number = 0;
+    
+    while (std::getline(infile, line)) {
+        line_number++;
+        
+        // Skip comments and empty lines
+        if (line.empty() || line[0] == '#') continue;
+        
+        std::istringstream iss(line);
+        int x, y, z;
+        size_t spin_id;
+        std::string spin_name, spin_type_str;
+        
+        // Read: x y z spin_id spin_name spin_type value(s)
+        if (!(iss >> x >> y >> z >> spin_id >> spin_name >> spin_type_str)) {
+            throw std::runtime_error("Invalid configuration file format at line " + 
+                                   std::to_string(line_number) + ": " + line);
+        }
+        
+        // Validate coordinates
+        if (x < 1 || x > lattice_size || y < 1 || y > lattice_size || z < 1 || z > lattice_size) {
+            throw std::runtime_error("Invalid coordinates at line " + std::to_string(line_number) + 
+                                   ": (" + std::to_string(x) + ", " + std::to_string(y) + ", " + 
+                                   std::to_string(z) + ")");
+        }
+        
+        // Validate spin_id
+        if (spin_id >= species.size()) {
+            throw std::runtime_error("Invalid spin_id at line " + std::to_string(line_number) + 
+                                   ": " + std::to_string(spin_id));
+        }
+        
+        // Validate species name matches
+        if (species[spin_id].name != spin_name) {
+            throw std::runtime_error("Species name mismatch at line " + std::to_string(line_number) + 
+                                   ": expected '" + species[spin_id].name + "' but got '" + spin_name + "'");
+        }
+        
+        // Read spin values based on type
+        if (spin_type_str == "Ising") {
+            if (species[spin_id].spin_type != SpinType::ISING) {
+                throw std::runtime_error("Spin type mismatch at line " + std::to_string(line_number) + 
+                                       ": expected Heisenberg but got Ising");
+            }
+            double val;
+            if (!(iss >> val)) {
+                throw std::runtime_error("Cannot read Ising spin value at line " + 
+                                       std::to_string(line_number));
+            }
+            sim.set_ising_spin(x, y, z, spin_id, val);
+            
+        } else if (spin_type_str == "Heisenberg") {
+            if (species[spin_id].spin_type != SpinType::HEISENBERG) {
+                throw std::runtime_error("Spin type mismatch at line " + std::to_string(line_number) + 
+                                       ": expected Ising but got Heisenberg");
+            }
+            double sx, sy, sz;
+            if (!(iss >> sx >> sy >> sz)) {
+                throw std::runtime_error("Cannot read Heisenberg spin values at line " + 
+                                       std::to_string(line_number));
+            }
+            spin3d s;
+            s.x = sx;
+            s.y = sy;
+            s.z = sz;
+            sim.set_heisenberg_spin(x, y, z, spin_id, s);
+            
+        } else {
+            throw std::runtime_error("Unknown spin type '" + spin_type_str + "' at line " + 
+                                   std::to_string(line_number));
+        }
+    }
+    
+    infile.close();
+    std::cout << "  Loaded configuration from " << config_file << std::endl;
 }
 
 } // namespace IO

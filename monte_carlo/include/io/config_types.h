@@ -111,13 +111,16 @@ struct OutputConfig {
  * Initial configuration options
  */
 struct InitializationConfig {
-    enum Type { RANDOM, CUSTOM };
+    enum Type { RANDOM, CUSTOM, FILE };
     Type type = RANDOM;
     
     // For CUSTOM type: specify values for each spin in unit cell
     // For Ising: +1 or -1
     // For Heisenberg: will be interpreted as sz component (sx=sy=0, normalized)
     std::vector<double> pattern;
+    
+    // For FILE type: path to configuration file to load
+    std::string initialization_file_path;
     
     // Random seed for RANDOM initialization (uses global seed if not set)
     long int random_seed = -1;
@@ -130,6 +133,7 @@ struct DiagnosticConfig {
     bool enable_profiling = false;                // Enable timing/profiling output
     bool enable_config_dump = false;              // Enable configuration dumps
     bool enable_observable_evolution = false;     // Track observable evolution during measurement
+    bool dump_initial_config = false;             // Dump initial configuration after warmup
     
     // Configuration dump options
     std::vector<int> dump_ranks;                  // Which ranks to dump (empty = none)
@@ -144,7 +148,7 @@ struct DiagnosticConfig {
     
     // Helper to check if a specific rank should dump
     bool should_dump_rank(int rank) const {
-        if (!enable_config_dump && !enable_observable_evolution) return false;
+        if (!enable_config_dump && !enable_observable_evolution && !dump_initial_config) return false;
         if (dump_all_ranks) return true;
         return std::find(dump_ranks.begin(), dump_ranks.end(), rank) != dump_ranks.end();
     }

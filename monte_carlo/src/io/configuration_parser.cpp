@@ -41,15 +41,17 @@
  *   kugel_khomskii = ""                 # Optional: Kugel-Khomskii interactions file
  * 
  * [initialization]
- *   type = "random"                     # Initialization type: "random" or "custom"
+ *   type = "random"                     # Initialization type: "random", "custom", or "file"
  *   pattern = [1, -1, 1, -1]            # For type="custom": values for each spin in unit cell
  *                                       # Ising: +1/-1, Heisenberg: sz component (-1 to +1)
+ *   initialization_file_path = "config.dat"  # For type="file": path to configuration file
  *   random_seed = -1                    # Optional: separate seed for initialization (default: use main seed)
  * 
  * [diagnostics]
  *   enable_profiling = false            # Enable timing/performance profiling
  *   enable_config_dump = false          # Enable configuration snapshots
  *   enable_observable_evolution = false # Enable per-measurement observable tracking
+ *   dump_initial_config = false         # Dump initial configuration after warmup
  *   
  *   dump_ranks = [0, 1]                 # Ranks to dump: array of integers, "all", or "none"
  *   dump_every_n_measurements = 10      # Dump configuration every N measurements
@@ -216,6 +218,7 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             config.diagnostics.enable_profiling = toml::find_or<bool>(diag, "enable_profiling", false);
             config.diagnostics.enable_config_dump = toml::find_or<bool>(diag, "enable_config_dump", false);
             config.diagnostics.enable_observable_evolution = toml::find_or<bool>(diag, "enable_observable_evolution", false);
+            config.diagnostics.dump_initial_config = toml::find_or<bool>(diag, "dump_initial_config", false);
             
             config.diagnostics.dump_every_n_measurements = toml::find_or<int>(diag, "dump_every_n_measurements", 10);
             config.diagnostics.dump_format = toml::find_or<std::string>(diag, "dump_format", "text");
@@ -258,9 +261,11 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
                 config.initialization.type = InitializationConfig::RANDOM;
             } else if (type_str == "custom") {
                 config.initialization.type = InitializationConfig::CUSTOM;
+            } else if (type_str == "file") {
+                config.initialization.type = InitializationConfig::FILE;
             } else {
                 throw ConfigurationError("Invalid initialization type: " + type_str + 
-                                       " (expected 'random' or 'custom')");
+                                       " (expected 'random', 'custom', or 'file')");
             }
             
             // Parse pattern if provided
@@ -278,6 +283,11 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
                 } else {
                     throw ConfigurationError("initialization.pattern must be an array of numbers");
                 }
+            }
+            
+            // Parse initialization_file_path if provided
+            if (init.contains("initialization_file_path")) {
+                config.initialization.initialization_file_path = toml::find<std::string>(init, "initialization_file_path");
             }
             
             // Parse random seed if provided
@@ -463,6 +473,42 @@ void ConfigurationParser::validate_configuration(const SimulationConfig& config)
         }
         if (config.temperature.temp_step <= 0) {
             throw ConfigurationError("Temperature step must be positive");
+        }
+    }
+    
+    // Validate initialization configuration
+    if (config.initialization.type == InitializationConfig::FILE) {
+        if (config.initialization.initialization_file_path.empty()) {
+            throw ConfigurationError("initialization.type='file' requires initialization_file_path to be set");
+        }
+    }
+    
+    if (config.initialization.type == InitializationConfig::CUSTOM) {
+        if (config.initialization.pattern.empty()) {
+            throw ConfigurationError("initialization.type='custom' requires pattern array to be set");
+        }
+        if (config.initialization.pattern.size() != config.species.size()) {
+            throw ConfigurationError("initialization.pattern size (" + 
+                                   std::to_string(config.initialization.pattern.size()) + 
+                                   ") must match number of species (" + 
+                                   std::to_string(config.species.size()) + ")");
+        }
+    }
+    
+    // Validate and provide warnings for diagnostic configuration
+    if (config.diagnostics.dump_initial_config) {
+        if (config.diagnostics.dump_ranks.empty() && !config.diagnostics.dump_all_ranks) {
+            std::cout << "WARNING: dump_initial_config=true but no dump_ranks specified." << std::endl;
+            std::cout << "         No configurations will be dumped." << std::endl;
+            std::cout << "         Set dump_ranks=[0] or dump_ranks=\"all\" to enable dumping." << std::endl;
+        }
+    }
+    
+    if (config.diagnostics.enable_config_dump || config.diagnostics.enable_observable_evolution) {
+        if (config.diagnostics.dump_ranks.empty() && !config.diagnostics.dump_all_ranks) {
+            std::cout << "WARNING: Configuration dumps enabled but no dump_ranks specified." << std::endl;
+            std::cout << "         No configurations will be dumped." << std::endl;
+            std::cout << "         Set dump_ranks=[0] or dump_ranks=\"all\" to enable dumping." << std::endl;
         }
     }
 }
