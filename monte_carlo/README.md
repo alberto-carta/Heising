@@ -82,11 +82,14 @@ make run_tests     # Build and run all tests
 ### Build Targets
 
 - `make heising.x` or `make heising` - Build main MPI-parallel executable
-- `make tests` - Build all test executables
+- `make slab_flip_analyzer.x` - Build domain transformation analyzer
+- `make tests` - Build all test executables (unit, io, deterministic MC, acceptance)
 - `make run_tests` - Build and run all tests with output
 - `make test` - Run tests using CTest
-- `make unit_tests` - Build only unit tests
-- `make io_tests` - Build only I/O tests
+- `make unit_tests` - Build unit tests
+- `make io_tests` - Build I/O tests
+- `make test_deterministic_mc_moves` - Build deterministic MC validation tests
+- `make test_mc_acceptance` - Build MC acceptance ratio tests
 
 ### CMake Configuration
 
@@ -121,13 +124,52 @@ mpirun -np 2 ./heising.x configuration.toml
 ./heising.x configuration.toml
 ```
 
+### Slab Flip Analyzer
+
+The `slab_flip_analyzer.x` tool analyzes domain transformation energetics between two spin patterns, useful for studying phase competition and critical nucleation sizes.
+
+**Build:**
+```bash
+cd build
+make slab_flip_analyzer.x
+```
+
+**Usage:**
+```bash
+./slab_flip_analyzer.x slab_analysis.toml
+```
+
+**Configuration (`slab_analysis.toml`):**
+```toml
+lattice_size = 16
+species_file = "species.dat"
+couplings_file = "couplings.dat"
+kugel_khomskii_file = "kugel_khomskii.dat"
+
+# Pattern format: [Cr1_z, Cr2_z, Cr3_z, Cr4_z, CrA_tau, CrB_tau, CrC_tau, CrD_tau]
+pattern1 = [1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0]  # C-AFM + G-OO
+pattern2 = [1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0]  # G-AFM + C-OO
+
+lateral_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+thicknesses = [1, 2, 3, 4, 5, 6, 7, 8]
+```
+
+**Output:**
+- Energy comparison between full-lattice Pattern 1 and Pattern 2
+- Single layer transformation energy
+- Critical size scan showing when slab transformation becomes energetically favorable
+- Identifies minimum domain size needed for phase nucleation
+
 ### Configuration Files
 
 See `examples/` directory for sample configurations:
-- `heisenberg_ferromagnet/` - Simple ferromagnetic system
-- `ising_ferromagnet/` - Ising model
+- `heisenberg_ferromagnet/` - Simple Heisenberg ferromagnet
+- `heisenberg_afm/` - Antiferromagnetic Heisenberg system
+- `ising_ferromagnet/` - Ising model ferromagnet
 - `mixed_ferromagnet/` - Mixed Heisenberg+Ising spins
 - `kk_ferromagnet/` - System with Kugel-Khomskii interactions
+- `4-atom_cell_*` - Multi-atom unit cell examples (ferro, AFM, frustrated, KK, etc.)
+- `example_initialization_from_file/` - Custom pattern initialization
 
 ### Basic Configuration
 
@@ -135,7 +177,7 @@ Create a `simulation.toml` file:
 
 ```toml
 [simulation]
-type = "temperature_scan"  # or "single_temperature"
+type = "temperature_scan"  # Options: "temperature_scan", "single_temperature"
 seed = -12345
 
 [lattice]
@@ -163,23 +205,27 @@ species = "species.dat"
 couplings = "couplings.dat"
 
 [initialization]
-type = "random"  # or "custom" with pattern = [...]
+type = "random"  # Options: "random", "custom", "from_file"
+# For custom: pattern = [1.0, -1.0, ...]
+# For from_file: file = "initialization.dat"
 ```
 
 ## Output
 
-The simulation produces two files:
-- `{base_name}_observables.out` - Mean values of all observables
-- `{base_name}_observables_stddev.out` - Standard deviations
+The simulation produces:
+- `{base_name}.observables` - Mean values and standard deviations for all observables
+- `{base_name}.diagnostics` - Detailed per-walker diagnostics (when enabled)
+- `{base_name}.timing` - Profiling information (when enabled)
 
 Observables include:
 - Energy per spin
-- Total magnetization
+- Total magnetization (and per-spin type)
 - Specific heat
-- Susceptibility
+- Magnetic susceptibility
 - Acceptance rate
-- Per-spin magnetization (optional)
-- Spin correlations (optional)
+- Per-site magnetization vectors (optional)
+- Spin-spin correlations (optional)
+- Phase classification (C-AFM, G-AFM, etc. for mixed systems)
 
 ## Testing
 
@@ -187,19 +233,16 @@ Run the test suite to verify installation:
 
 ```bash
 cd build
-make run_tests
+make run_tests  # Build and run all tests
+# Or use CTest:
+ctest
 ```
 
-All tests should pass:
-```
-Test project /path/to/build
-    Start 1: UnitTests
-1/2 Test #1: UnitTests ........................   Passed    0.05 sec
-    Start 2: IOTests
-2/2 Test #2: IOTests ..........................   Passed    0.02 sec
-
-100% tests passed, 0 tests failed out of 2
-```
+Tests include:
+- Unit tests: Basic spin operations, energy calculations
+- I/O tests: Configuration parsing, file handling
+- Deterministic MC tests: Reproducible move sequences
+- Acceptance tests: MC acceptance ratio validation
 
 ## Performance Tips
 

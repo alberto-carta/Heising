@@ -13,16 +13,44 @@
 #include "random.h"
 #include <eigen3/Eigen/Dense>
 #include <optional>  // C++17 feature
+#include <vector>
 
 // External seed declaration
 extern long int seed;
 
+// Forward declaration of MoveProposer (defined in mc_moves.h)
+class MoveProposer;
+
+// Structure to hold a proposed Monte Carlo move
+struct MoveProposal {
+    double energy_change;
+    
+    // Affected spins and their new configurations
+    std::vector<int> affected_spin_ids;    // Which spins are affected
+    std::vector<double> new_ising_values;  // New Ising values
+    std::vector<double> new_hx_values;     // New Heisenberg x
+    std::vector<double> new_hy_values;     // New Heisenberg y
+    std::vector<double> new_hz_values;     // New Heisenberg z
+    
+    MoveProposal() : energy_change(0.0) {}
+};
+
 class MonteCarloSimulation {
+    friend class MoveProposer;  // Allow MoveProposer to access private members
+    
 private:
     // Core parameters
     int lattice_size;
     double temperature;
     double max_rotation_angle;
+    
+    // Move probabilities for Heisenberg spins
+    double heisenberg_flip_probability;   // Probability of flip move
+    double heisenberg_rotation_probability;  // Probability of rotation move
+    // Note: flip_prob + rotation_prob should = 1.0
+    
+    // Site-level move probabilities
+    double double_tunnel_probability;  // Probability of flipping all spins at a site
     
         // Multi-spin structure
     UnitCell unit_cell;
@@ -43,6 +71,9 @@ private:
     double current_energy;
     double current_magnetization;
     std::vector<spin3d> current_mag_per_spin;
+    
+    // Move proposer (pointer to avoid circular dependency)
+    MoveProposer* move_proposer;
     
     // Fast indexing
     inline int flatten_index(int x, int y, int z, int spin_id) const {
@@ -94,7 +125,7 @@ public:
                          std::optional<KK_Matrix> kk = std::nullopt);
     
     // Destructor
-    ~MonteCarloSimulation() = default;
+    ~MonteCarloSimulation();
     
     // Check if Kugel-Khomskii coupling is present
     bool has_kugel_khomskii() const { return kk_matrix.has_value(); }
@@ -102,6 +133,10 @@ public:
     // Temperature control
     void set_temperature(double T) { temperature = T; }
     double get_temperature() const { return temperature; }
+    
+    // Move probability control
+    void set_heisenberg_flip_probability(double prob) { heisenberg_flip_probability = prob; }
+    double get_heisenberg_flip_probability() const { return heisenberg_flip_probability; }
     
     // Main methods
     void initialize_lattice_custom(const std::vector<double>& pattern);
@@ -147,9 +182,18 @@ public:
     Eigen::ArrayXd& get_heisenberg_y_array_mutable() { return heisenberg_y; }
     Eigen::ArrayXd& get_heisenberg_z_array_mutable() { return heisenberg_z; }
     
+    // Accessors for MoveProposer
+    const UnitCell& get_unit_cell() const { return unit_cell; }
+    double get_max_rotation_angle() const { return max_rotation_angle; }
+    
     // Direct energy calculation for testing
     double calculate_local_energy(int x, int y, int z, int spin_id) {
         return calculate_local_energy_fast(x, y, z, spin_id);
+    }
+    
+    // Site-based energy calculation (for moves affecting multiple spins at a site)
+    double calculate_site_energy(int x, int y, int z, int site_id) {
+        return (this->*site_energy_dispatch_ptr)(x, y, z, site_id);
     }
     
     // Metropolis test for testing
@@ -162,8 +206,6 @@ public:
     inline double calculate_local_energy_fast(int x, int y, int z, int spin_id) {
         return (this->*energy_dispatch_ptr)(x, y, z, spin_id);
     }
-
-    // needs implementing of site based energy calculation
 };
 
 #endif // SIMULATION_ENGINE_H

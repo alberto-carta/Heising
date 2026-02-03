@@ -8,6 +8,7 @@
 #include "simulation_engine.h"
 #include "spin_operations.h"
 #include "random.h"
+#include "mc_moves.h"
 #include <iostream>
 #include <cmath>
 #include <iomanip>
@@ -21,8 +22,13 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
                                           int size, double T,
                                           std::optional<KK_Matrix> kk)
     : lattice_size(size), temperature(T), max_rotation_angle(1.5),
+      heisenberg_flip_probability(0.2),      // 20% flip
+      heisenberg_rotation_probability(0.8),  // 80% rotation
+      double_tunnel_probability(0.2),        // 0% double tunnel (disabled by default)
+
       unit_cell(uc), coupling_matrix(couplings), kk_matrix(kk),
-      total_attempts(0), total_acceptances(0) {
+      total_attempts(0), total_acceptances(0),
+      move_proposer(nullptr) {  // Initialize pointer to nullptr, will allocate after setup
     
     std::cout << "Creating Monte Carlo simulation:" << std::endl;
     std::cout << "Unit cell: " << unit_cell.num_spins() << " spins" << std::endl;
@@ -69,7 +75,15 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
     current_energy = 0.0;
     current_magnetization = 0.0;
     
+    // Initialize move proposer (after all members are set up)
+    move_proposer = new MoveProposer(*this);
+    
     std::cout << "Simulation engine initialized!" << std::endl;
+}
+
+// Destructor
+MonteCarloSimulation::~MonteCarloSimulation() {
+    delete move_proposer;
 }
 
 // Initialize lattice with ordered spins 
@@ -350,79 +364,100 @@ double MonteCarloSimulation::compute_kk_contribution(int x, int y, int z, int si
     return kk_energy;
 }
 
-// Fast Monte Carlo step
+// Fast Monte Carlo step - selects site, spin, proposes move, tests with Metropolis
 void MonteCarloSimulation::run_monte_carlo_step() {
-    // Random site selection
+    // Random site selection (unit cell position)
     int x = static_cast<int>(ran1(&seed) * lattice_size) + 1;
     int y = static_cast<int>(ran1(&seed) * lattice_size) + 1;
     int z = static_cast<int>(ran1(&seed) * lattice_size) + 1;
-    int spin_id = static_cast<int>(ran1(&seed) * unit_cell.num_spins());
     
-    const SpinInfo& spin = unit_cell.get_spin(spin_id);
-    int idx = flatten_index(x, y, z, spin_id);
+    // Select random site within unit cell
+    int num_sites = unit_cell.get_num_sites();
+    int site_id = static_cast<int>(ran1(&seed) * num_sites);
     
-    // Store old values
-    double old_ising = ising_spins[idx];
-    double old_hx = heisenberg_x[idx];
-    double old_hy = heisenberg_y[idx];
-    double old_hz = heisenberg_z[idx];
-    
-    // Calculate energy before move
-    double energy_before = calculate_local_energy_fast(x, y, z, spin_id);
-    
-    // Propose move
-    if (spin.spin_type == SpinType::ISING) {
-        ising_spins[idx] = -ising_spins[idx];  // Flip
-    } else {
-        // Rotate Heisenberg spin
-        spin3d old_spin(old_hx, old_hy, old_hz);
-        spin3d new_spin = small_random_change(old_spin, max_rotation_angle);
-        heisenberg_x[idx] = new_spin.x;
-        heisenberg_y[idx] = new_spin.y;
-        heisenberg_z[idx] = new_spin.z;
+    // Get spins at this site
+    std::vector<int> spins_at_site = unit_cell.get_spins_at_site(site_id);
+    if (spins_at_site.empty()) {
+        return;  // Safety check - should never happen
     }
     
-    // Calculate energy after move
-    double energy_after = calculate_local_energy_fast(x, y, z, spin_id);
-    double energy_change = energy_after - energy_before;
+    // Decide on move type: first check if double_tunnel should be attempted
+    MoveProposal proposal;
+    double move_selector = ran1(&seed);
+    
+    if (move_selector < double_tunnel_probability) {
+        // Double tunnel move: flip all spins at this site
+        proposal = move_proposer->propose_site_double_tunnel(x, y, z, site_id);
+    } else {
+        // Single-spin moves: select a random spin from this site
+        int local_spin_idx = static_cast<int>(ran1(&seed) * spins_at_site.size());
+        int spin_id = spins_at_site[local_spin_idx];
+        const SpinInfo& spin = unit_cell.get_spin(spin_id);
+        
+        // Propose move based on spin type
+        if (spin.spin_type == SpinType::ISING) {
+            // Ising spins: only flip move available
+            proposal = move_proposer->propose_ising_flip(x, y, z, spin_id);
+        } else {
+            // Heisenberg spins: choose between flip and rotation
+            // Renormalize probabilities since we're in the "not double_tunnel" branch
+            double heisenberg_selector = ran1(&seed);
+            if (heisenberg_selector < heisenberg_flip_probability) {
+                proposal = move_proposer->propose_heisenberg_flip(x, y, z, spin_id);
+            } else {
+                proposal = move_proposer->propose_heisenberg_rotation(x, y, z, spin_id);
+            }
+        }
+    }
     
     total_attempts++;
     
-    // Metropolis test
-    if (!metropolis_test_fast(energy_change)) {
-        // Reject - restore old values
-        ising_spins[idx] = old_ising;
-        heisenberg_x[idx] = old_hx;
-        heisenberg_y[idx] = old_hy;
-        heisenberg_z[idx] = old_hz;
-    } else {
+    // Apply Metropolis test
+    if (metropolis_test_fast(proposal.energy_change)) {
+        // Accept: apply proposed configuration to all affected spins
         total_acceptances++;
+        current_energy += proposal.energy_change;
         
-        // Update tracked observables incrementally
-        current_energy += energy_change;
-        
-        // Update magnetization (change from old to new spin)
-        if (spin.spin_type == SpinType::ISING) {
-            double mag_change = (ising_spins[idx] - old_ising) * spin.spin_magnitude;  // +2S or -2S
-            current_magnetization += mag_change;
-            current_mag_per_spin[spin_id].z += mag_change / (lattice_size * lattice_size * lattice_size);  // Track per-spin average
-        } else {
-            // For Heisenberg, mag change is vector difference
-            double mag_change_x = heisenberg_x[idx] - old_hx;
-            double mag_change_y = heisenberg_y[idx] - old_hy;
-            double mag_change_z = heisenberg_z[idx] - old_hz;
-            double old_mag = std::sqrt(old_hx*old_hx + old_hy*old_hy + old_hz*old_hz);
-            double new_mag = std::sqrt(heisenberg_x[idx]*heisenberg_x[idx] + 
-                                      heisenberg_y[idx]*heisenberg_y[idx] + 
-                                      heisenberg_z[idx]*heisenberg_z[idx]);
-            current_magnetization += (new_mag - old_mag) * spin.spin_magnitude;
-            // Track per-spin average (divided by number of cells)
-            double norm = 1.0 / (lattice_size * lattice_size * lattice_size);
-            current_mag_per_spin[spin_id].x += mag_change_x * spin.spin_magnitude * norm;
-            current_mag_per_spin[spin_id].y += mag_change_y * spin.spin_magnitude * norm;
-            current_mag_per_spin[spin_id].z += mag_change_z * spin.spin_magnitude * norm;
+        for (size_t i = 0; i < proposal.affected_spin_ids.size(); i++) {
+            int spin_id = proposal.affected_spin_ids[i];
+            const SpinInfo& spin = unit_cell.get_spin(spin_id);
+            int idx = flatten_index(x, y, z, spin_id);
+            
+            // Store old values for magnetization update
+            double old_ising = ising_spins[idx];
+            double old_hx = heisenberg_x[idx];
+            double old_hy = heisenberg_y[idx];
+            double old_hz = heisenberg_z[idx];
+            
+            // Apply new configuration
+            if (spin.spin_type == SpinType::ISING) {
+                ising_spins[idx] = proposal.new_ising_values[i];
+                double mag_change = (proposal.new_ising_values[i] - old_ising) * spin.spin_magnitude;
+                current_magnetization += mag_change;
+                current_mag_per_spin[spin_id].z += mag_change / (lattice_size * lattice_size * lattice_size);
+            } else {
+                heisenberg_x[idx] = proposal.new_hx_values[i];
+                heisenberg_y[idx] = proposal.new_hy_values[i];
+                heisenberg_z[idx] = proposal.new_hz_values[i];
+                
+                double mag_change_x = proposal.new_hx_values[i] - old_hx;
+                double mag_change_y = proposal.new_hy_values[i] - old_hy;
+                double mag_change_z = proposal.new_hz_values[i] - old_hz;
+                
+                double old_mag = std::sqrt(old_hx*old_hx + old_hy*old_hy + old_hz*old_hz);
+                double new_mag = std::sqrt(proposal.new_hx_values[i]*proposal.new_hx_values[i] + 
+                                          proposal.new_hy_values[i]*proposal.new_hy_values[i] + 
+                                          proposal.new_hz_values[i]*proposal.new_hz_values[i]);
+                current_magnetization += (new_mag - old_mag) * spin.spin_magnitude;
+                
+                double norm = 1.0 / (lattice_size * lattice_size * lattice_size);
+                current_mag_per_spin[spin_id].x += mag_change_x * spin.spin_magnitude * norm;
+                current_mag_per_spin[spin_id].y += mag_change_y * spin.spin_magnitude * norm;
+                current_mag_per_spin[spin_id].z += mag_change_z * spin.spin_magnitude * norm;
+            }
         }
     }
+    // If rejected, do nothing - old configuration remains unchanged
 }
 
 // Warmup phase

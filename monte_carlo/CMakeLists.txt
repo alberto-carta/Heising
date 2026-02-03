@@ -100,6 +100,7 @@ include_directories(
 file(GLOB CORE_SOURCES 
     "src/simulation_engine.cpp"
     "src/spin_operations.cpp"
+    "src/mc_moves.cpp"
     "src/random.cpp"
     "src/simulation_utils.cpp"
     "src/profiling.cpp"
@@ -135,6 +136,18 @@ target_link_libraries(heising.x
 add_custom_target(heising DEPENDS heising.x)
 
 # ============================================================================
+# ANALYSIS TOOLS
+# ============================================================================
+
+# Domain transformation energy analysis tool
+add_executable(slab_flip_analyzer.x 
+    src/analyze_domain_transformation.cpp 
+    ${ALL_SOURCES}
+    ${MPI_SOURCE}
+)
+target_link_libraries(slab_flip_analyzer.x m)
+
+# ============================================================================
 # TESTS
 # ============================================================================
 
@@ -155,8 +168,24 @@ add_executable(io_tests
 target_compile_definitions(io_tests PRIVATE TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/io_test_data")
 target_link_libraries(io_tests m)
 
+# Deterministic MC moves tests
+add_executable(test_deterministic_mc_moves 
+    tests/test_deterministic_mc_moves.cpp 
+    ${ALL_SOURCES}
+    ${MPI_SOURCE}
+)
+target_link_libraries(test_deterministic_mc_moves m)
+
+# MC acceptance rate tests (non-deterministic)
+add_executable(test_mc_acceptance 
+    tests/test_mc_acceptance.cpp 
+    ${ALL_SOURCES}
+    ${MPI_SOURCE}
+)
+target_link_libraries(test_mc_acceptance m)
+
 # Custom target to build all tests
-add_custom_target(tests DEPENDS unit_tests io_tests)
+add_custom_target(tests DEPENDS unit_tests io_tests test_deterministic_mc_moves test_mc_acceptance)
 
 # Custom target to run all tests
 add_custom_target(run_tests
@@ -165,6 +194,12 @@ add_custom_target(run_tests
     COMMAND ${CMAKE_COMMAND} -E echo ""
     COMMAND ${CMAKE_COMMAND} -E echo "Running IO tests..."
     COMMAND ${CMAKE_BINARY_DIR}/io_tests
+    COMMAND ${CMAKE_COMMAND} -E echo ""
+    COMMAND ${CMAKE_COMMAND} -E echo "Running deterministic MC moves tests..."
+    COMMAND ${CMAKE_BINARY_DIR}/test_deterministic_mc_moves
+    COMMAND ${CMAKE_COMMAND} -E echo ""
+    COMMAND ${CMAKE_COMMAND} -E echo "Running MC acceptance tests..."
+    COMMAND ${CMAKE_BINARY_DIR}/test_mc_acceptance
     DEPENDS tests
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Running all tests..."

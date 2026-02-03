@@ -30,9 +30,13 @@ spin3d random_unit_vector() {
     return result;
 }
 
-// Generate a small random change to a spin vector
-// This is used for local Monte Carlo updates in Heisenberg model
-spin3d small_random_change(const spin3d& current_spin, double max_angle) {
+// Select a random small rotation angle
+double select_small_angle(double max_angle) {
+    return max_angle * (2.0 * ran1(&seed) - 1.0);
+}
+
+// Apply a rotation to a spin by a given angle around a perpendicular axis
+spin3d apply_rotation(const spin3d& current_spin, double angle) {
     // Generate a random axis perpendicular to current spin
     spin3d random_axis = random_unit_vector();
     
@@ -57,9 +61,6 @@ spin3d small_random_change(const spin3d& current_spin, double max_angle) {
     perpendicular.z = random_axis.z - projection * current_spin.z;
     perpendicular.normalize();
     
-    // Generate random angle in [-max_angle, max_angle]
-    double angle = max_angle * (2.0 * ran1(&seed) - 1.0);
-    
     // Rotate current spin by this angle around the perpendicular axis
     // New spin = cos(angle) * current + sin(angle) * perpendicular
     spin3d new_spin;
@@ -74,4 +75,13 @@ spin3d small_random_change(const spin3d& current_spin, double max_angle) {
     new_spin.normalize();
     
     return new_spin;
+}
+
+// Flip a Heisenberg spin (reverse its direction: S -> -S)
+spin3d flip_heisenberg_spin(const spin3d& original_spin) {
+    spin3d flipped;
+    flipped.x = -original_spin.x;
+    flipped.y = -original_spin.y;
+    flipped.z = -original_spin.z;
+    return flipped;
 }
