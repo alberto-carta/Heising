@@ -27,6 +27,9 @@ struct MoveProposal {
     
     // Affected spins and their new configurations
     std::vector<int> affected_spin_ids;    // Which spins are affected
+    std::vector<int> affected_x;           // X positions for multi-cell moves
+    std::vector<int> affected_y;           // Y positions for multi-cell moves
+    std::vector<int> affected_z;           // Z positions for multi-cell moves
     std::vector<double> new_ising_values;  // New Ising values
     std::vector<double> new_hx_values;     // New Heisenberg x
     std::vector<double> new_hy_values;     // New Heisenberg y
@@ -44,15 +47,27 @@ private:
     double temperature;
     double max_rotation_angle;
     
-    // Move probabilities for Heisenberg spins
+    // Move probabilities for Heisenberg spins (conditional, used only when single-spin move selected)
     double heisenberg_flip_probability;   // Probability of flip move
     double heisenberg_rotation_probability;  // Probability of rotation move
     // Note: flip_prob + rotation_prob should = 1.0
     
-    // Site-level move probabilities
+    // Top-level move probability:
+    // - double_tunnel_probability: probability of site-level double flip
+    // - (1 - double_tunnel_prob): probability of single-spin move
     double double_tunnel_probability;  // Probability of flipping all spins at a site
     
-        // Multi-spin structure
+    // Slab tunnel move parameters (burst mode)
+    std::vector<double> slab_pattern1;     // Pattern 1 (ordered by spin_id from species file)
+    std::vector<double> slab_pattern2;     // Pattern 2 (ordered by spin_id from species file)
+    std::vector<bool> slab_flip_mask;      // Pre-computed: which spins to flip (pattern1[i]*pattern2[i] < 0)
+    int slab_lateral_size;                 // Lateral dimensions of slab (x and y)
+    int slab_thickness;                    // Thickness of slab (z direction)
+    int slab_burst_interval;               // Attempt slab moves every N MC sweeps
+    int slab_burst_attempts;               // Number of slab move attempts per burst
+    bool slab_tunnel_debug;                // Enable debug output for slab tunnel moves
+    
+    // Multi-spin structure
     UnitCell unit_cell;
     CouplingMatrix coupling_matrix;
     std::optional<KK_Matrix> kk_matrix;  // Optional Kugel-Khomskii coupling matrix
@@ -64,8 +79,10 @@ private:
     Eigen::ArrayXd heisenberg_z;     // Heisenberg z-components
     
     // Statistics
-    long int total_attempts;
-    long int total_acceptances;
+    long int total_attempts;           // Local moves (single-spin + double-tunnel)
+    long int total_acceptances;        // Local moves accepted
+    long int total_slab_attempts;      // Slab tunnel move attempts
+    long int total_slab_acceptances;   // Slab tunnel moves accepted
     
     // Tracked observables (updated incrementally during MC)
     double current_energy;
@@ -134,6 +151,19 @@ public:
     void set_temperature(double T) { temperature = T; }
     double get_temperature() const { return temperature; }
     
+    // Slab tunnel configuration
+    void set_slab_tunnel_parameters(const std::vector<double>& p1, 
+                                    const std::vector<double>& p2,
+                                    int lateral, int thick, 
+                                    int burst_interval, int burst_attempts,
+                                    bool debug = false);
+    const std::vector<bool>& get_slab_flip_mask() const { return slab_flip_mask; }
+    int get_slab_lateral_size() const { return slab_lateral_size; }
+    int get_slab_thickness() const { return slab_thickness; }
+    int get_slab_burst_interval() const { return slab_burst_interval; }
+    int get_slab_burst_attempts() const { return slab_burst_attempts; }
+    bool get_slab_tunnel_debug() const { return slab_tunnel_debug; }
+    
     // Move probability control
     void set_heisenberg_flip_probability(double prob) { heisenberg_flip_probability = prob; }
     double get_heisenberg_flip_probability() const { return heisenberg_flip_probability; }
@@ -163,7 +193,13 @@ public:
     std::vector<double> get_spin_correlation_with_first();
     
     double get_acceptance_rate() const;
+    double get_slab_acceptance_rate() const;
+    long int get_total_slab_attempts() const { return total_slab_attempts; }
+    long int get_total_slab_acceptances() const { return total_slab_acceptances; }
     void reset_statistics();
+    
+    // Slab tunnel move (for burst mode)
+    void attempt_slab_tunnel_move();
     
     // Fast spin access for testing
     int get_ising_spin(int x, int y, int z, int spin_id) const;
@@ -200,6 +236,9 @@ public:
     bool metropolis_test(double energy_change) {
         return metropolis_test_fast(energy_change);
     }
+    
+    // Get move proposer (for testing)
+    MoveProposer* get_move_proposer() { return move_proposer; }
 
 
     // spin based energy calculation  

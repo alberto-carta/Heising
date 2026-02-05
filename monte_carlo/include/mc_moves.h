@@ -31,5 +31,8 @@ public:
     
     // Propose site-level move (flips all spins at a site)
     MoveProposal propose_site_double_tunnel(int x, int y, int z, int site_id);
+    
+    // Propose slab tunnel move (transforms entire slab from pattern1 to pattern2)
+    MoveProposal propose_slab_tunnel(int x_start, int y_start, int z_start);
 };
 

@@ -5,7 +5,7 @@
  * =============================
  * 
  * [simulation]
- *   type = "temperature_scan"           # Simulation type (default: "temperature_scan")
+ *   type = "temperature_scan"           # Simulation type ("single_temperature" or "temperature_scan", default: "temperature_scan")
  *   seed = -12345                       # Random number seed (default: -12345)
  * 
  * [lattice]
@@ -46,6 +46,16 @@
  *                                       # Ising: +1/-1, Heisenberg: sz component (-1 to +1)
  *   initialization_file_path = "config.dat"  # For type="file": path to configuration file
  *   random_seed = -1                    # Optional: separate seed for initialization (default: use main seed)
+ * 
+ * [slab_tunnel]
+ *   enabled = false                     # Enable slab tunnel move (default: false)
+ *   pattern1 = [1, 1, -1, -1, 1, -1, 1, -1]   # First pattern (e.g., C-AFM+G-OO)
+ *   pattern2 = [1, -1, 1, -1, 1, 1, -1, -1]   # Second pattern (e.g., G-AFM+C-OO)
+ *   lateral_size = 11                   # Lateral size of slab (N×N)
+ *   thickness = 1                       # Thickness of slab in z-direction
+ *   burst_interval = 100                # Attempt slab moves every N MC sweeps
+ *   burst_attempts = 50                 # Number of slab move attempts per burst
+ *   debug = false                       # Enable debug output for slab tunnel moves
  * 
  * [diagnostics]
  *   enable_profiling = false            # Enable timing/performance profiling
@@ -292,6 +302,62 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             
             // Parse random seed if provided
             config.initialization.random_seed = toml::find_or<long int>(init, "random_seed", -1);
+        }
+        
+        // Parse slab_tunnel section (optional)
+        if (data.contains("slab_tunnel")) {
+            const auto slab = toml::find(data, "slab_tunnel");
+            
+            config.slab_tunnel.enabled = toml::find_or<bool>(slab, "enabled", false);
+            config.slab_tunnel.lateral_size = toml::find_or<int>(slab, "lateral_size", 1);
+            config.slab_tunnel.thickness = toml::find_or<int>(slab, "thickness", 1);
+            config.slab_tunnel.burst_interval = toml::find_or<int>(slab, "burst_interval", 100);
+            config.slab_tunnel.burst_attempts = toml::find_or<int>(slab, "burst_attempts", 50);
+            config.slab_tunnel.debug = toml::find_or<bool>(slab, "debug", false);
+            
+            // Parse pattern1 if provided
+            if (slab.contains("pattern1")) {
+                const auto& pattern1_value = toml::find(slab, "pattern1");
+                if (pattern1_value.is_array()) {
+                    const auto& pattern_array = pattern1_value.as_array();
+                    for (const auto& val : pattern_array) {
+                        if (val.is_floating()) {
+                            config.slab_tunnel.pattern1.push_back(val.as_floating());
+                        } else if (val.is_integer()) {
+                            config.slab_tunnel.pattern1.push_back(static_cast<double>(val.as_integer()));
+                        }
+                    }
+                } else {
+                    throw ConfigurationError("slab_tunnel.pattern1 must be an array of numbers");
+                }
+            }
+            
+            // Parse pattern2 if provided
+            if (slab.contains("pattern2")) {
+                const auto& pattern2_value = toml::find(slab, "pattern2");
+                if (pattern2_value.is_array()) {
+                    const auto& pattern_array = pattern2_value.as_array();
+                    for (const auto& val : pattern_array) {
+                        if (val.is_floating()) {
+                            config.slab_tunnel.pattern2.push_back(val.as_floating());
+                        } else if (val.is_integer()) {
+                            config.slab_tunnel.pattern2.push_back(static_cast<double>(val.as_integer()));
+                        }
+                    }
+                } else {
+                    throw ConfigurationError("slab_tunnel.pattern2 must be an array of numbers");
+                }
+            }
+            
+            // Validate that if enabled, both patterns must be provided
+            if (config.slab_tunnel.enabled) {
+                if (config.slab_tunnel.pattern1.empty() || config.slab_tunnel.pattern2.empty()) {
+                    throw ConfigurationError("slab_tunnel enabled but pattern1 or pattern2 not provided");
+                }
+                if (config.slab_tunnel.pattern1.size() != config.slab_tunnel.pattern2.size()) {
+                    throw ConfigurationError("slab_tunnel.pattern1 and pattern2 must have the same size");
+                }
+            }
         }
         
     } catch (const toml::syntax_error& e) {

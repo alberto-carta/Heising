@@ -22,12 +22,16 @@ MonteCarloSimulation::MonteCarloSimulation(const UnitCell& uc,
                                           int size, double T,
                                           std::optional<KK_Matrix> kk)
     : lattice_size(size), temperature(T), max_rotation_angle(1.5),
-      heisenberg_flip_probability(0.2),      // 20% flip
-      heisenberg_rotation_probability(0.8),  // 80% rotation
-      double_tunnel_probability(0.2),        // 0% double tunnel (disabled by default)
+      heisenberg_flip_probability(0.2),      // 20% flip (conditional within Heisenberg single-spin moves)
+      heisenberg_rotation_probability(0.8),  // 80% rotation (conditional within Heisenberg single-spin moves)
+      double_tunnel_probability(0.0),        // 0% double tunnel (disabled by default)
+      slab_lateral_size(1), slab_thickness(1),  // Default slab parameters
+      slab_burst_interval(0), slab_burst_attempts(50),  // Default: bursts disabled (interval=0)
+      slab_tunnel_debug(false),              // Debug disabled by default
 
       unit_cell(uc), coupling_matrix(couplings), kk_matrix(kk),
       total_attempts(0), total_acceptances(0),
+      total_slab_attempts(0), total_slab_acceptances(0),
       move_proposer(nullptr) {  // Initialize pointer to nullptr, will allocate after setup
     
     std::cout << "Creating Monte Carlo simulation:" << std::endl;
@@ -366,30 +370,43 @@ double MonteCarloSimulation::compute_kk_contribution(int x, int y, int z, int si
 
 // Fast Monte Carlo step - selects site, spin, proposes move, tests with Metropolis
 void MonteCarloSimulation::run_monte_carlo_step() {
-    // Random site selection (unit cell position)
-    int x = static_cast<int>(ran1(&seed) * lattice_size) + 1;
-    int y = static_cast<int>(ran1(&seed) * lattice_size) + 1;
-    int z = static_cast<int>(ran1(&seed) * lattice_size) + 1;
-    
-    // Select random site within unit cell
-    int num_sites = unit_cell.get_num_sites();
-    int site_id = static_cast<int>(ran1(&seed) * num_sites);
-    
-    // Get spins at this site
-    std::vector<int> spins_at_site = unit_cell.get_spins_at_site(site_id);
-    if (spins_at_site.empty()) {
-        return;  // Safety check - should never happen
-    }
-    
-    // Decide on move type: first check if double_tunnel should be attempted
+    // Decide on move type hierarchically:
+    // Level 1: double_tunnel vs single-spin
+    // Level 2 (for Heisenberg single-spin): flip vs rotation
     MoveProposal proposal;
     double move_selector = ran1(&seed);
     
     if (move_selector < double_tunnel_probability) {
-        // Double tunnel move: flip all spins at this site
+        // Double tunnel move: flip all spins at a site
+        // Random site selection (unit cell position)
+        int x = static_cast<int>(ran1(&seed) * lattice_size) + 1;
+        int y = static_cast<int>(ran1(&seed) * lattice_size) + 1;
+        int z = static_cast<int>(ran1(&seed) * lattice_size) + 1;
+        
+        // Select random site within unit cell
+        int num_sites = unit_cell.get_num_sites();
+        int site_id = static_cast<int>(ran1(&seed) * num_sites);
+        
         proposal = move_proposer->propose_site_double_tunnel(x, y, z, site_id);
+        
     } else {
-        // Single-spin moves: select a random spin from this site
+        // Single-spin moves
+        // Random site selection (unit cell position)
+        int x = static_cast<int>(ran1(&seed) * lattice_size) + 1;
+        int y = static_cast<int>(ran1(&seed) * lattice_size) + 1;
+        int z = static_cast<int>(ran1(&seed) * lattice_size) + 1;
+        
+        // Select random site within unit cell
+        int num_sites = unit_cell.get_num_sites();
+        int site_id = static_cast<int>(ran1(&seed) * num_sites);
+        
+        // Get spins at this site
+        std::vector<int> spins_at_site = unit_cell.get_spins_at_site(site_id);
+        if (spins_at_site.empty()) {
+            return;  // Safety check - should never happen
+        }
+        
+        // Select a random spin from this site
         int local_spin_idx = static_cast<int>(ran1(&seed) * spins_at_site.size());
         int spin_id = spins_at_site[local_spin_idx];
         const SpinInfo& spin = unit_cell.get_spin(spin_id);
@@ -400,7 +417,6 @@ void MonteCarloSimulation::run_monte_carlo_step() {
             proposal = move_proposer->propose_ising_flip(x, y, z, spin_id);
         } else {
             // Heisenberg spins: choose between flip and rotation
-            // Renormalize probabilities since we're in the "not double_tunnel" branch
             double heisenberg_selector = ran1(&seed);
             if (heisenberg_selector < heisenberg_flip_probability) {
                 proposal = move_proposer->propose_heisenberg_flip(x, y, z, spin_id);
@@ -420,8 +436,11 @@ void MonteCarloSimulation::run_monte_carlo_step() {
         
         for (size_t i = 0; i < proposal.affected_spin_ids.size(); i++) {
             int spin_id = proposal.affected_spin_ids[i];
+            int pos_x = proposal.affected_x[i];
+            int pos_y = proposal.affected_y[i];
+            int pos_z = proposal.affected_z[i];
             const SpinInfo& spin = unit_cell.get_spin(spin_id);
-            int idx = flatten_index(x, y, z, spin_id);
+            int idx = flatten_index(pos_x, pos_y, pos_z, spin_id);
             
             // Store old values for magnetization update
             double old_ising = ising_spins[idx];
@@ -786,16 +805,94 @@ double MonteCarloSimulation::get_absolute_magnetization() {
     return total_mag;
 }
 
-// Acceptance rate
+// Acceptance rate (local moves only)
 double MonteCarloSimulation::get_acceptance_rate() const {
     if (total_attempts == 0) return 0.0;
     return 100.0 * total_acceptances / total_attempts;
+}
+
+// Slab tunnel acceptance rate
+double MonteCarloSimulation::get_slab_acceptance_rate() const {
+    if (total_slab_attempts == 0) return 0.0;
+    return 100.0 * total_slab_acceptances / total_slab_attempts;
 }
 
 // Reset statistics
 void MonteCarloSimulation::reset_statistics() {
     total_attempts = 0;
     total_acceptances = 0;
+    total_slab_attempts = 0;
+    total_slab_acceptances = 0;
+}
+
+// Attempt a single slab tunnel move (for burst mode)
+void MonteCarloSimulation::attempt_slab_tunnel_move() {
+    // Select random position for slab (ensure it fits within lattice)
+    int max_x_start = lattice_size - slab_lateral_size + 1;
+    int max_y_start = lattice_size - slab_lateral_size + 1;
+    int max_z_start = lattice_size - slab_thickness + 1;
+    
+    if (max_x_start < 1) max_x_start = 1;
+    if (max_y_start < 1) max_y_start = 1;
+    if (max_z_start < 1) max_z_start = 1;
+    
+    int x_start = static_cast<int>(ran1(&seed) * max_x_start) + 1;
+    int y_start = static_cast<int>(ran1(&seed) * max_y_start) + 1;
+    int z_start = static_cast<int>(ran1(&seed) * max_z_start) + 1;
+    
+    MoveProposal proposal = move_proposer->propose_slab_tunnel(x_start, y_start, z_start);
+    
+    total_slab_attempts++;
+    
+    // Apply Metropolis test
+    if (metropolis_test_fast(proposal.energy_change)) {
+        // Accept: apply proposed configuration to all affected spins
+        total_slab_acceptances++;
+        current_energy += proposal.energy_change;
+        
+        for (size_t i = 0; i < proposal.affected_spin_ids.size(); i++) {
+            int spin_id = proposal.affected_spin_ids[i];
+            int pos_x = proposal.affected_x[i];
+            int pos_y = proposal.affected_y[i];
+            int pos_z = proposal.affected_z[i];
+            const SpinInfo& spin = unit_cell.get_spin(spin_id);
+            int idx = flatten_index(pos_x, pos_y, pos_z, spin_id);
+            
+            // Store old values for magnetization update
+            double old_ising = ising_spins[idx];
+            double old_hx = heisenberg_x[idx];
+            double old_hy = heisenberg_y[idx];
+            double old_hz = heisenberg_z[idx];
+            
+            // Apply new configuration
+            if (spin.spin_type == SpinType::ISING) {
+                ising_spins[idx] = proposal.new_ising_values[i];
+                double mag_change = (proposal.new_ising_values[i] - old_ising) * spin.spin_magnitude;
+                current_magnetization += mag_change;
+                current_mag_per_spin[spin_id].z += mag_change / (lattice_size * lattice_size * lattice_size);
+            } else {
+                heisenberg_x[idx] = proposal.new_hx_values[i];
+                heisenberg_y[idx] = proposal.new_hy_values[i];
+                heisenberg_z[idx] = proposal.new_hz_values[i];
+                
+                double mag_change_x = proposal.new_hx_values[i] - old_hx;
+                double mag_change_y = proposal.new_hy_values[i] - old_hy;
+                double mag_change_z = proposal.new_hz_values[i] - old_hz;
+                
+                double old_mag = std::sqrt(old_hx*old_hx + old_hy*old_hy + old_hz*old_hz);
+                double new_mag = std::sqrt(proposal.new_hx_values[i]*proposal.new_hx_values[i] + 
+                                          proposal.new_hy_values[i]*proposal.new_hy_values[i] + 
+                                          proposal.new_hz_values[i]*proposal.new_hz_values[i]);
+                current_magnetization += (new_mag - old_mag) * spin.spin_magnitude;
+                
+                double norm = 1.0 / (lattice_size * lattice_size * lattice_size);
+                current_mag_per_spin[spin_id].x += mag_change_x * spin.spin_magnitude * norm;
+                current_mag_per_spin[spin_id].y += mag_change_y * spin.spin_magnitude * norm;
+                current_mag_per_spin[spin_id].z += mag_change_z * spin.spin_magnitude * norm;
+            }
+        }
+    }
+    // If rejected, do nothing - old configuration remains unchanged
 }
 
 // Spin access methods (for testing)
@@ -819,4 +916,68 @@ void MonteCarloSimulation::set_heisenberg_spin(int x, int y, int z, int spin_id,
     heisenberg_x[idx] = spin.x;
     heisenberg_y[idx] = spin.y;
     heisenberg_z[idx] = spin.z;
+}
+
+// Set slab tunnel parameters and pre-compute flip mask
+void MonteCarloSimulation::set_slab_tunnel_parameters(
+    const std::vector<double>& p1, 
+    const std::vector<double>& p2,
+    int lateral, int thick, 
+    int burst_interval, int burst_attempts,
+    bool debug) {
+    
+    int num_spins = unit_cell.num_spins();
+    
+    // Validate pattern sizes
+    if (p1.size() != static_cast<size_t>(num_spins) || p2.size() != static_cast<size_t>(num_spins)) {
+        std::cerr << "ERROR: Slab pattern sizes (" << p1.size() << ", " << p2.size() 
+                  << ") do not match number of spins in unit cell (" << num_spins << ")" << std::endl;
+        throw std::runtime_error("Invalid slab pattern size");
+    }
+    
+    slab_pattern1 = p1;
+    slab_pattern2 = p2;
+    slab_lateral_size = lateral;
+    slab_thickness = thick;
+    slab_burst_interval = burst_interval;
+    slab_burst_attempts = burst_attempts;
+    slab_tunnel_debug = debug;
+    
+    // Cap lateral_size to lattice_size if needed
+    if (slab_lateral_size > lattice_size) {
+        std::cout << "WARNING: Slab lateral_size (" << slab_lateral_size 
+                  << ") exceeds lattice size (" << lattice_size 
+                  << "). Capping to " << lattice_size << std::endl;
+        slab_lateral_size = lattice_size;
+    }
+    
+    // Pre-compute flip mask: flip when signs differ
+    slab_flip_mask.resize(num_spins);
+    for (int i = 0; i < num_spins; i++) {
+        slab_flip_mask[i] = (p1[i] * p2[i] < 0.0);
+    }
+    
+    std::cout << "Slab tunnel parameters set (burst mode):" << std::endl;
+    std::cout << "  Lateral size: " << lateral << "x" << lateral << std::endl;
+    std::cout << "  Thickness: " << thick << std::endl;
+    std::cout << "  Burst interval: " << burst_interval << " MC sweeps" << std::endl;
+    std::cout << "  Burst attempts: " << burst_attempts << " attempts per burst" << std::endl;
+    std::cout << "  Pattern 1: [";
+    for (size_t i = 0; i < p1.size(); i++) {
+        std::cout << p1[i];
+        if (i < p1.size() - 1) std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  Pattern 2: [";
+    for (size_t i = 0; i < p2.size(); i++) {
+        std::cout << p2[i];
+        if (i < p2.size() - 1) std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  Flip mask: [";
+    for (size_t i = 0; i < slab_flip_mask.size(); i++) {
+        std::cout << (slab_flip_mask[i] ? "flip" : "keep");
+        if (i < slab_flip_mask.size() - 1) std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
 }

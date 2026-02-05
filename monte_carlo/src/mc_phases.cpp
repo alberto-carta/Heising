@@ -58,12 +58,26 @@ std::pair<double, double> run_warmup_phase(
     auto warmup_start = std::chrono::high_resolution_clock::now();
     double mc_step_time_estimate = 0.0;
     
+    // Get slab tunnel configuration
+    int slab_burst_interval = sim.get_slab_burst_interval();
+    int slab_burst_attempts = sim.get_slab_burst_attempts();
+    
     if (enable_profiling && warmup_steps >= 1000) {
         // Profile MC step timing during first 1000 steps for performance diagnostics
         auto mc_timing_start = std::chrono::high_resolution_clock::now();
         for (int step_sample = 0; step_sample < 1000; step_sample++) {
             for (int attempt = 0; attempt < total_spins; attempt++) {
                 sim.run_monte_carlo_step();
+            }
+            // Slab tunnel burst after each sweep if enabled and interval reached
+            if (slab_burst_interval > 0 && (step_sample + 1) % slab_burst_interval == 0) {
+                // if debug enabled signal you are doing slab tunnel burst
+                if (sim.get_slab_tunnel_debug() && rank == 0) {
+                    std::cout << "[DEBUG: SLAB_TUNNEL] Performing burst of " << slab_burst_attempts << " slab tunnel move attempts..." << std::endl;
+                }
+                for (int slab_attempt = 0; slab_attempt < slab_burst_attempts; slab_attempt++) {
+                    sim.attempt_slab_tunnel_move();
+                }
             }
         }
         auto mc_timing_end = std::chrono::high_resolution_clock::now();
@@ -74,6 +88,15 @@ std::pair<double, double> run_warmup_phase(
         for (int sweep = 1000; sweep < warmup_steps; sweep++) {
             for (int attempt = 0; attempt < total_spins; attempt++) {
                 sim.run_monte_carlo_step();
+            }
+            // Slab tunnel burst after each sweep if enabled and interval reached
+            if (slab_burst_interval > 0 && (sweep + 1) % slab_burst_interval == 0) {
+                if (sim.get_slab_tunnel_debug() && rank == 0) {
+                    std::cout << "[DEBUG: SLAB_TUNNEL] Performing burst of " << slab_burst_attempts << " slab tunnel move attempts..." << std::endl;
+                }
+                for (int slab_attempt = 0; slab_attempt < slab_burst_attempts; slab_attempt++) {
+                    sim.attempt_slab_tunnel_move();
+                }
             }
             if (rank == 0 && (sweep + 1) % 1000 == 0) {
                 std::cout << "  Warmup: " << (sweep + 1) << "/" << warmup_steps 
@@ -86,6 +109,12 @@ std::pair<double, double> run_warmup_phase(
         for (int sweep = 0; sweep < warmup_steps; sweep++) {
             for (int attempt = 0; attempt < total_spins; attempt++) {
                 sim.run_monte_carlo_step();
+            }
+            // Slab tunnel burst after each sweep if enabled and interval reached
+            if (slab_burst_interval > 0 && (sweep + 1) % slab_burst_interval == 0) {
+                for (int slab_attempt = 0; slab_attempt < slab_burst_attempts; slab_attempt++) {
+                    sim.attempt_slab_tunnel_move();
+                }
             }
             if (rank == 0 && (sweep + 1) % 1000 == 0) {
                 std::cout << "  Warmup: " << (sweep + 1) << "/" << warmup_steps 
@@ -207,11 +236,23 @@ std::pair<MeasurementData, double> run_measurement_phase(
     // Main measurement loop
     // Each iteration: (1) evolves spin config via MC, (2) samples observables
     int num_samples = 0;
+    
+    // Get slab tunnel configuration
+    int slab_burst_interval = sim.get_slab_burst_interval();
+    int slab_burst_attempts = sim.get_slab_burst_attempts();
+    
     for (int sweep = 0; sweep < measurement_steps_per_rank; sweep++) {
         // One sweep = total_spins random spin flip attempts
         // This MODIFIES the spin configuration in sim object
         for (int attempt = 0; attempt < total_spins; attempt++) {
             sim.run_monte_carlo_step();  // IN-PLACE modification of spins
+        }
+        
+        // Slab tunnel burst after each sweep if enabled and interval reached
+        if (slab_burst_interval > 0 && (sweep + 1) % slab_burst_interval == 0) {
+            for (int slab_attempt = 0; slab_attempt < slab_burst_attempts; slab_attempt++) {
+                sim.attempt_slab_tunnel_move();
+            }
         }
         
         // Sample observables at specified frequency

@@ -128,6 +128,34 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
         seed = rank_seed;
         sim = new MonteCarloSimulation(unit_cell, couplings, config.lattice_size, T, kk_matrix);
         created_new_sim = true;
+        
+        // Configure slab tunnel move if enabled
+        if (config.slab_tunnel.enabled) {
+            if (rank == 0) {
+                std::cout << "  Configuring slab tunnel move..." << std::endl;
+            }
+            
+            // Cap lateral_size to lattice size if needed
+            int lateral_size = config.slab_tunnel.lateral_size;
+            if (lateral_size > config.lattice_size) {
+                if (rank == 0) {
+                    std::cout << "  WARNING: Slab lateral_size (" << lateral_size 
+                              << ") exceeds lattice size (" << config.lattice_size 
+                              << "). Capping to " << config.lattice_size << std::endl;
+                }
+                lateral_size = config.lattice_size;
+            }
+            
+            sim->set_slab_tunnel_parameters(
+                config.slab_tunnel.pattern1,
+                config.slab_tunnel.pattern2,
+                lateral_size,
+                config.slab_tunnel.thickness,
+                config.slab_tunnel.burst_interval,
+                config.slab_tunnel.burst_attempts,
+                config.slab_tunnel.debug
+            );
+        }
     } else {
         // Update temperature of existing simulation
         sim->set_temperature(T);

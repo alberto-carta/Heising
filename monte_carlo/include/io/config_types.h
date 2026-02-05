@@ -155,6 +155,20 @@ struct DiagnosticConfig {
 };
 
 /**
+ * Slab tunnel move configuration
+ */
+struct SlabTunnelConfig {
+    bool enabled = false;                       // Enable slab tunnel moves
+    std::vector<double> pattern1;               // First pattern (e.g., C-AFM+G-OO)
+    std::vector<double> pattern2;               // Second pattern (e.g., G-AFM+C-OO)
+    int lateral_size = 1;                       // Lateral size of slab (N×N)
+    int thickness = 1;                          // Thickness of slab in z-direction
+    int burst_interval = 100;                   // Attempt slab moves every N MC sweeps
+    int burst_attempts = 50;                    // Number of slab move attempts per burst
+    bool debug = false;                         // Enable debug output for slab tunnel moves
+};
+
+/**
  * Complete simulation configuration
  */
 struct SimulationConfig {
@@ -176,6 +190,9 @@ struct SimulationConfig {
     
     // Initialization settings (optional)
     InitializationConfig initialization;
+    
+    // Slab tunnel move settings (optional)
+    SlabTunnelConfig slab_tunnel;
     
     // Input file paths
     std::string species_file;

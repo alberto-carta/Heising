@@ -184,8 +184,16 @@ add_executable(test_mc_acceptance
 )
 target_link_libraries(test_mc_acceptance m)
 
+# Slab tunnel test
+add_executable(test_slab_tunnel 
+    tests/test_slab_tunnel.cpp 
+    ${ALL_SOURCES}
+    ${MPI_SOURCE}
+)
+target_link_libraries(test_slab_tunnel m)
+
 # Custom target to build all tests
-add_custom_target(tests DEPENDS unit_tests io_tests test_deterministic_mc_moves test_mc_acceptance)
+add_custom_target(tests DEPENDS unit_tests io_tests test_deterministic_mc_moves test_mc_acceptance test_slab_tunnel)
 
 # Custom target to run all tests
 add_custom_target(run_tests
