@@ -229,7 +229,7 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
     
     // Optionally align walker magnetization sign to prevent cancellation across ranks
     if (config.diagnostics.align_walkers) {
-        align_walker_magnetization(measurement_data, config.species);
+        align_walker_magnetization(measurement_data, config.species, rank);
     }
     
     // Gather all measurements from all ranks to rank 0

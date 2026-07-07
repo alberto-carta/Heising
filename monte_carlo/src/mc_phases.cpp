@@ -349,7 +349,8 @@ std::pair<MeasurementData, double> run_measurement_phase(
 }
 
 void align_walker_magnetization(MeasurementData& data,
-                                const std::vector<IO::MagneticSpecies>& species) {
+                                const std::vector<IO::MagneticSpecies>& species,
+                                int rank) {
     // Find the first Heisenberg species to use as reference
     int ref_idx = -1;
     for (size_t i = 0; i < species.size(); i++) {
@@ -367,7 +368,16 @@ void align_walker_magnetization(MeasurementData& data,
     for (double v : ref_samples) mean_sz += v;
     mean_sz /= ref_samples.size();
     
-    if (mean_sz >= 0.0) return;  // already aligned
+    std::cout << "  [align_walkers] rank " << rank
+              << "  ref=" << species[ref_idx].name
+              << "  <Sz>=" << std::fixed << std::setprecision(4) << mean_sz;
+    
+    if (mean_sz >= 0.0) {
+        std::cout << "  (already aligned, no flip)" << std::endl;
+        return;
+    }
+    
+    std::cout << "  → FLIPPING magnetization sign" << std::endl;
     
     // Flip all magnetization samples
     for (auto& v : data.magnetization_samples) v = -v;

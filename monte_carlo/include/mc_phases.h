@@ -77,8 +77,10 @@ std::pair<MeasurementData, double> run_measurement_phase(
  * 
  * @param data Measurement data to modify in-place
  * @param species List of magnetic species (to find first Heisenberg species)
+ * @param rank MPI rank (for log output)
  */
 void align_walker_magnetization(MeasurementData& data,
-                                const std::vector<IO::MagneticSpecies>& species);
+                                const std::vector<IO::MagneticSpecies>& species,
+                                int rank);
 
 #endif // MC_PHASES_H
