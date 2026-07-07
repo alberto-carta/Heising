@@ -347,3 +347,37 @@ std::pair<MeasurementData, double> run_measurement_phase(
     
     return {data, measurement_elapsed.count()};
 }
+
+void align_walker_magnetization(MeasurementData& data,
+                                const std::vector<IO::MagneticSpecies>& species) {
+    // Find the first Heisenberg species to use as reference
+    int ref_idx = -1;
+    for (size_t i = 0; i < species.size(); i++) {
+        if (species[i].spin_type == SpinType::HEISENBERG) {
+            ref_idx = static_cast<int>(i);
+            break;
+        }
+    }
+    if (ref_idx < 0 || ref_idx >= static_cast<int>(data.mag_z_samples.size())) return;
+    
+    // Compute mean Sz of reference species for this walker
+    const auto& ref_samples = data.mag_z_samples[ref_idx];
+    if (ref_samples.empty()) return;
+    double mean_sz = 0.0;
+    for (double v : ref_samples) mean_sz += v;
+    mean_sz /= ref_samples.size();
+    
+    if (mean_sz >= 0.0) return;  // already aligned
+    
+    // Flip all magnetization samples
+    for (auto& v : data.magnetization_samples) v = -v;
+    if (!data.magnetization_series.empty()) {
+        for (auto& v : data.magnetization_series) v = -v;
+    }
+    for (size_t i = 0; i < data.mag_x_samples.size(); i++) {
+        for (auto& v : data.mag_x_samples[i]) v = -v;
+        for (auto& v : data.mag_y_samples[i]) v = -v;
+        for (auto& v : data.mag_z_samples[i]) v = -v;
+    }
+    // Note: energy, correlations, and acceptance rate are sign-invariant, no change needed
+}

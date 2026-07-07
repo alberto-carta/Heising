@@ -146,6 +146,10 @@ struct DiagnosticConfig {
     bool recompute_observables_each_sample = false; // If true, recompute energy/mag from scratch each sample (slow but accurate)
                                                     // If false, track incrementally (fast, recommended)
     
+    // Walker alignment: flip sign of magnetization if reference Heisenberg spin has negative mean Sz
+    // Eliminates sign-cancellation across MPI walkers from spontaneous symmetry breaking
+    bool align_walkers = false;
+    
     // Helper to check if a specific rank should dump
     bool should_dump_rank(int rank) const {
         if (!enable_config_dump && !enable_observable_evolution && !dump_initial_config) return false;

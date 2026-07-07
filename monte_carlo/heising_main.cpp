@@ -227,6 +227,11 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
                                                                         total_spins, T, rank, dump_dir);
     results.timings.measurement_time = measurement_time;
     
+    // Optionally align walker magnetization sign to prevent cancellation across ranks
+    if (config.diagnostics.align_walkers) {
+        align_walker_magnetization(measurement_data, config.species);
+    }
+    
     // Gather all measurements from all ranks to rank 0
     auto comm_start = std::chrono::high_resolution_clock::now();
     std::vector<double> all_energy_samples = mpi_accumulator.gather_samples(measurement_data.energy_samples);

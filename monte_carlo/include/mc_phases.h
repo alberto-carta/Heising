@@ -69,4 +69,16 @@ std::pair<MeasurementData, double> run_measurement_phase(
     const std::string& dump_dir
 );
 
+/**
+ * Align walker magnetization: if the mean Sz of the first Heisenberg species
+ * is negative, flip the sign of all magnetization samples for this walker.
+ * This prevents sign-cancellation across MPI ranks from spontaneous symmetry breaking.
+ * Only affects magnetization samples; energy, correlations, and acceptance are invariant.
+ * 
+ * @param data Measurement data to modify in-place
+ * @param species List of magnetic species (to find first Heisenberg species)
+ */
+void align_walker_magnetization(MeasurementData& data,
+                                const std::vector<IO::MagneticSpecies>& species);
+
 #endif // MC_PHASES_H

@@ -234,6 +234,7 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             config.diagnostics.dump_format = toml::find_or<std::string>(diag, "dump_format", "text");
             config.diagnostics.estimate_autocorrelation = toml::find_or<bool>(diag, "estimate_autocorrelation", true);
             config.diagnostics.recompute_observables_each_sample = toml::find_or<bool>(diag, "recompute_observables_each_sample", false);
+            config.diagnostics.align_walkers = toml::find_or<bool>(diag, "align_walkers", false);
             
             // Parse dump_ranks - can be "all", "none", or array of integers
             if (diag.contains("dump_ranks")) {
