@@ -365,6 +365,16 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
             std::cout << "  Estimated τ_auto: Energy≈" << std::fixed << std::setprecision(2) << tau_energy
                      << " sweeps, Magnetization≈" << tau_mag << " sweeps" << std::endl;
         }
+        
+        // Warning if walker alignment was used
+        if (config.diagnostics.align_walkers) {
+            std::cout << "\n  ⚠  WALKER ALIGNMENT ACTIVE: Heisenberg and Ising magnetization signs\n"
+                      << "     aligned independently per MPI rank. This assumes NO on-site coupling\n"
+                      << "     between S direction and τ direction (e.g., no spin-orbit coupling\n"
+                      << "     that locks the relative S/τ orientation). Signed observables\n"
+                      << "     assume independent Z₂ symmetries for spin and orbital sectors.\n"
+                      << std::endl;
+        }
     }
     
     // Store temperature timing

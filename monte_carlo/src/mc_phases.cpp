@@ -351,43 +351,73 @@ std::pair<MeasurementData, double> run_measurement_phase(
 void align_walker_magnetization(MeasurementData& data,
                                 const std::vector<IO::MagneticSpecies>& species,
                                 int rank) {
-    // Find the first Heisenberg species to use as reference
-    int ref_idx = -1;
+    // ---- Align Heisenberg sector ----
+    // Find first Heisenberg species as reference
+    int heis_ref = -1;
     for (size_t i = 0; i < species.size(); i++) {
-        if (species[i].spin_type == SpinType::HEISENBERG) {
-            ref_idx = static_cast<int>(i);
-            break;
+        if (species[i].spin_type == SpinType::HEISENBERG) { heis_ref = static_cast<int>(i); break; }
+    }
+    bool flipped_heis = false;
+    if (heis_ref >= 0 && heis_ref < static_cast<int>(data.mag_z_samples.size())) {
+        const auto& ref = data.mag_z_samples[heis_ref];
+        if (!ref.empty()) {
+            double mean_sz = 0.0;
+            for (double v : ref) mean_sz += v;
+            mean_sz /= ref.size();
+            if (mean_sz < 0.0) {
+                // Flip all Heisenberg magnetization components only
+                for (size_t i = 0; i < species.size(); i++) {
+                    if (species[i].spin_type == SpinType::HEISENBERG) {
+                        for (auto& v : data.mag_x_samples[i]) v = -v;
+                        for (auto& v : data.mag_y_samples[i]) v = -v;
+                        for (auto& v : data.mag_z_samples[i]) v = -v;
+                    }
+                }
+                // Also flip total magnetization (contains both sectors)
+                for (auto& v : data.magnetization_samples) v = -v;
+                if (!data.magnetization_series.empty())
+                    for (auto& v : data.magnetization_series) v = -v;
+                flipped_heis = true;
+            }
+            std::cout << "  [align_walkers] rank " << rank
+                      << "  Heisenberg ref=" << species[heis_ref].name
+                      << "  <Sz>=" << std::fixed << std::setprecision(4) << mean_sz
+                      << (flipped_heis ? "  → FLIPPED Heisenberg" : "  (ok)") << std::endl;
         }
     }
-    if (ref_idx < 0 || ref_idx >= static_cast<int>(data.mag_z_samples.size())) return;
     
-    // Compute mean Sz of reference species for this walker
-    const auto& ref_samples = data.mag_z_samples[ref_idx];
-    if (ref_samples.empty()) return;
-    double mean_sz = 0.0;
-    for (double v : ref_samples) mean_sz += v;
-    mean_sz /= ref_samples.size();
-    
-    std::cout << "  [align_walkers] rank " << rank
-              << "  ref=" << species[ref_idx].name
-              << "  <Sz>=" << std::fixed << std::setprecision(4) << mean_sz;
-    
-    if (mean_sz >= 0.0) {
-        std::cout << "  (already aligned, no flip)" << std::endl;
-        return;
+    // ---- Align Ising sector (independent of Heisenberg) ----
+    int ising_ref = -1;
+    for (size_t i = 0; i < species.size(); i++) {
+        if (species[i].spin_type == SpinType::ISING) { ising_ref = static_cast<int>(i); break; }
+    }
+    if (ising_ref >= 0 && ising_ref < static_cast<int>(data.mag_z_samples.size())) {
+        const auto& ref = data.mag_z_samples[ising_ref];
+        if (!ref.empty()) {
+            double mean_tau = 0.0;
+            for (double v : ref) mean_tau += v;
+            mean_tau /= ref.size();
+            if (mean_tau < 0.0) {
+                // Flip Ising magnetization components only; adjust total magnetization
+                for (size_t i = 0; i < species.size(); i++) {
+                    if (species[i].spin_type == SpinType::ISING) {
+                        for (auto& v : data.mag_z_samples[i]) v = -v;
+                    }
+                }
+                // Adjust total magnetization: Ising contributes only z-component change
+                // (already partially handled above; if both flipped, total M already correct)
+                if (!flipped_heis) {
+                    for (auto& v : data.magnetization_samples) v = -v;
+                    if (!data.magnetization_series.empty())
+                        for (auto& v : data.magnetization_series) v = -v;
+                }
+            }
+            std::cout << "  [align_walkers] rank " << rank
+                      << "  Ising    ref=" << species[ising_ref].name
+                      << "  <τ>=" << std::fixed << std::setprecision(4) << mean_tau
+                      << (mean_tau < 0.0 ? "  → FLIPPED Ising" : "  (ok)") << std::endl;
+        }
     }
     
-    std::cout << "  → FLIPPING magnetization sign" << std::endl;
-    
-    // Flip all magnetization samples
-    for (auto& v : data.magnetization_samples) v = -v;
-    if (!data.magnetization_series.empty()) {
-        for (auto& v : data.magnetization_series) v = -v;
-    }
-    for (size_t i = 0; i < data.mag_x_samples.size(); i++) {
-        for (auto& v : data.mag_x_samples[i]) v = -v;
-        for (auto& v : data.mag_y_samples[i]) v = -v;
-        for (auto& v : data.mag_z_samples[i]) v = -v;
-    }
     // Note: energy, correlations, and acceptance rate are sign-invariant, no change needed
 }
