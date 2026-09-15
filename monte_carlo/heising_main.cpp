@@ -25,6 +25,7 @@
 #include <cmath>
 #include <vector>
 #include <chrono>
+#include <optional>
 
 // Global random seed (will be set from configuration)
 long int seed = -12345;
@@ -49,6 +50,37 @@ struct TemperatureResults {
     std::vector<double> stddev_correlations;
     TemperatureTimings timings;
 };
+
+// Round a double to 8 decimal places. This matches the precision used when
+// temperatures are written to the observables file, so grid temperatures can be
+// compared against values parsed back from the file without floating-point drift.
+static double round_to_8_decimals(double value) {
+    return std::round(value * 1e8) / 1e8;
+}
+
+// Read the last temperature recorded in an observables output file.
+// Data rows start with the temperature in the first column; header lines begin
+// with '#'. Returns std::nullopt if the file is missing or contains no data rows.
+static std::optional<double> read_last_temperature(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return std::nullopt;
+
+    std::string line;
+    bool found = false;
+    double last_T = 0.0;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream iss(line);
+        double T = 0.0;
+        if (iss >> T) {
+            last_T = T;
+            found = true;
+        }
+    }
+
+    if (!found) return std::nullopt;
+    return last_T;
+}
 
 /**
  * Initialize simulation based on configuration
@@ -482,23 +514,94 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                   << " (total: " << measurement_steps_per_rank * num_ranks << ")" << std::endl;
     }
     
+    // ------------------------------------------------------------------------
+    // Restart handling
+    // ------------------------------------------------------------------------
+    // Build the temperature list using exactly the same arithmetic as the scan
+    // loop below, so the restart point stays consistent with the intended grid.
+    std::vector<double> temperature_list;
+    for (double T = config.temperature.max_temp; T >= config.temperature.min_temp; T -= config.temperature.temp_step) {
+        temperature_list.push_back(T);
+    }
+    
+    std::string output_file = config.output.directory + "/" + config.output.base_name + "_observables.out";
+    std::string stddev_file = config.output.directory + "/" + config.output.base_name + "_observables_stddev.out";
+    
+    bool append_results = false;   // Append to existing files instead of truncating
+    size_t start_index = 0;        // Index of first temperature to run
+    
+    if (config.restart_mode == "restart") {
+        if (rank == 0) {
+            IO::print_subsection_separator("RESTART MODE");
+            std::cout << "Restart mode: restart" << std::endl;
+            std::cout << "Looking for file: " << output_file << std::endl;
+        }
+        
+        std::optional<double> last_T_opt = read_last_temperature(output_file);
+        
+        if (last_T_opt.has_value()) {
+            double T_last = last_T_opt.value();
+            double T_last_rounded = round_to_8_decimals(T_last);
+            
+            if (rank == 0) {
+                std::cout << "Found " << output_file << ", parsing." << std::endl;
+                std::cout << "Last temperature found: " << std::fixed << std::setprecision(8) << T_last << std::endl;
+            }
+            
+            // Find the highest temperature in the scan list strictly below T_last
+            bool found_restart = false;
+            for (size_t i = 0; i < temperature_list.size(); i++) {
+                if (round_to_8_decimals(temperature_list[i]) < T_last_rounded) {
+                    start_index = i;
+                    found_restart = true;
+                    break;
+                }
+            }
+            
+            if (!found_restart) {
+                if (rank == 0) {
+                    std::cout << "All temperatures in the requested range are already present in the file." << std::endl;
+                    std::cout << "The temperature scan is already complete; nothing to do." << std::endl;
+                }
+                return;
+            }
+            
+            append_results = true;
+            if (rank == 0) {
+                std::cout << "Starting calculation from T = " << std::fixed << std::setprecision(8)
+                          << temperature_list[start_index] << std::endl;
+            }
+        } else {
+            if (rank == 0) {
+                std::cout << "File " << output_file << " not found or contains no data rows." << std::endl;
+                std::cout << "Starting calculation from scratch (T = " << config.temperature.max_temp << ")." << std::endl;
+            }
+        }
+    } else {
+        if (rank == 0) {
+            std::cout << "Restart mode: from_scratch" << std::endl;
+        }
+    }
+    
     // Create simulation objects from configuration
     UnitCell unit_cell = create_unit_cell_from_config(config.species);
     CouplingMatrix couplings = create_couplings_from_config(config.couplings, config.species, config.lattice_size);
     std::optional<KK_Matrix> kk_matrix = create_kk_matrix_from_config(config.kk_couplings, unit_cell, config.lattice_size);
     
     // Setup output files (rank 0 only)
-    std::string output_file, stddev_file;
     std::ofstream outfile, stddev_outfile;
     
     if (rank == 0) {
-        output_file = config.output.directory + "/" + config.output.base_name + "_observables.out";
-        stddev_file = config.output.directory + "/" + config.output.base_name + "_observables_stddev.out";
+        if (append_results) {
+            outfile.open(output_file, std::ios::app);
+            stddev_outfile.open(stddev_file, std::ios::app);
+        } else {
+            outfile.open(output_file);
+            stddev_outfile.open(stddev_file);
+        }
         
-        outfile.open(output_file);
-        stddev_outfile.open(stddev_file);
-        
-        // Write headers
+        // Write headers (only for a fresh file; appends keep the existing header)
+        if (!append_results) {
         auto write_header = [&](std::ofstream& file, const std::string& desc) {
             file << "# Monte Carlo simulation " << desc << " (MPI parallel, " << num_ranks << " walkers)" << std::endl;
             file << "# System: ";
@@ -553,6 +656,7 @@ void run_temperature_scan(const IO::SimulationConfig& config,
         
         write_column_header(outfile);
         write_column_header(stddev_outfile);
+        }  // end if (!append_results)
         
         outfile << std::fixed << std::setprecision(8);
         stddev_outfile << std::fixed << std::setprecision(8);
@@ -585,7 +689,8 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     bool first_temperature = true;
     MonteCarloSimulation* sim = nullptr;  // Will persist across temperatures if restart_from_previous_T=true
     
-    for (double T = config.temperature.max_temp; T >= config.temperature.min_temp; T -= config.temperature.temp_step) {
+    for (size_t temp_index = start_index; temp_index < temperature_list.size(); temp_index++) {
+        double T = temperature_list[temp_index];
         if (rank == 0) {
             std::cout << "\nT = " << std::fixed << std::setprecision(2) << T << std::endl;
         }

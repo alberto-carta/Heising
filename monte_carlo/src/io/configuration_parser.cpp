@@ -153,6 +153,12 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             }
             
             config.monte_carlo.seed = toml::find_or<long>(sim, "seed", -12345);
+
+            config.restart_mode = toml::find_or<std::string>(sim, "restart_mode", "from_scratch");
+            if (config.restart_mode != "restart" && config.restart_mode != "from_scratch") {
+                throw ConfigurationError("Invalid restart_mode: '" + config.restart_mode +
+                                         "'. Allowed values: 'restart', 'from_scratch'");
+            }
         }
         
         // Parse lattice section  
@@ -484,6 +490,11 @@ std::vector<KKCoupling> ConfigurationParser::parse_kk_file(const std::string& kk
 }
 
 void ConfigurationParser::validate_configuration(const SimulationConfig& config) {
+    // Restart mode is only supported for temperature scans
+    if (config.restart_mode == "restart" && config.simulation_type != "temperature_scan") {
+        throw ConfigurationError("restart_mode='restart' is only supported for simulation type 'temperature_scan'");
+    }
+
     // Check that all coupling species exist in the species list
     for (const auto& coupling : config.couplings) {
         bool found_species1 = false, found_species2 = false;

@@ -179,6 +179,11 @@ struct SimulationConfig {
     // Simulation parameters
     std::string simulation_type;
     int lattice_size;
+
+    // Restart mode: "restart" resumes an existing temperature scan from the
+    // last temperature recorded in the observables file; "from_scratch" always
+    // starts a new scan. Only valid when simulation_type == "temperature_scan".
+    std::string restart_mode = "from_scratch";
     
     // Temperature settings
     TemperatureConfig temperature;
