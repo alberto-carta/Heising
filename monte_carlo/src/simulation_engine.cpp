@@ -775,6 +775,44 @@ std::vector<double> MonteCarloSimulation::get_spin_correlation_with_first() {
     return correlations;
 }
 
+// Octupole moment <tau_i s_i> per site
+// For each site, returns the lattice average of (Ising value) * (Heisenberg vector)
+// taken at the same site, i.e. <tau_i s_i> as one 3D vector per site.
+// Sites without exactly one Ising and one Heisenberg spin contribute zero.
+std::vector<spin3d> MonteCarloSimulation::get_octupole_moment_per_site() {
+    int num_sites = unit_cell.get_num_sites();
+    std::vector<spin3d> octupole(num_sites, spin3d(0.0, 0.0, 0.0));
+    int total_cells = lattice_size * lattice_size * lattice_size;
+    
+    for (int site_id = 0; site_id < num_sites; site_id++) {
+        // Identify the Ising and Heisenberg spin of this site
+        int heis_id = -1;
+        int ising_id = -1;
+        for (int spin_id : unit_cell.get_spins_at_site(site_id)) {
+            const SpinInfo& spin = unit_cell.get_spin(spin_id);
+            if (spin.spin_type == SpinType::HEISENBERG && heis_id == -1) heis_id = spin_id;
+            else if (spin.spin_type == SpinType::ISING && ising_id == -1) ising_id = spin_id;
+        }
+        if (heis_id == -1 || ising_id == -1) continue;  // Need both types
+        
+        double sx = 0.0, sy = 0.0, sz = 0.0;
+        for (int x = 1; x <= lattice_size; x++) {
+            for (int y = 1; y <= lattice_size; y++) {
+                for (int z = 1; z <= lattice_size; z++) {
+                    double tau = ising_spins[flatten_index(x, y, z, ising_id)];
+                    int idx_h = flatten_index(x, y, z, heis_id);
+                    sx += tau * heisenberg_x[idx_h];
+                    sy += tau * heisenberg_y[idx_h];
+                    sz += tau * heisenberg_z[idx_h];
+                }
+            }
+        }
+        octupole[site_id] = spin3d(sx / total_cells, sy / total_cells, sz / total_cells);
+    }
+    
+    return octupole;
+}
+
 // Absolute magnetization
 
 // Absolute magnetization

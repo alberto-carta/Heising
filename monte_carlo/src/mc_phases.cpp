@@ -213,6 +213,19 @@ std::pair<MeasurementData, double> run_measurement_phase(
     }
     data.acceptance_samples.reserve(expected_samples);
     
+    // Octupole moment samples (one 3-vector per site)
+    if (config.output.output_octupole) {
+        int num_sites = sim.get_unit_cell().get_num_sites();
+        data.oct_x_samples.resize(num_sites);
+        data.oct_y_samples.resize(num_sites);
+        data.oct_z_samples.resize(num_sites);
+        for (int i = 0; i < num_sites; i++) {
+            data.oct_x_samples[i].reserve(expected_samples);
+            data.oct_y_samples[i].reserve(expected_samples);
+            data.oct_z_samples[i].reserve(expected_samples);
+        }
+    }
+    
     // For autocorrelation estimation
     if (config.diagnostics.estimate_autocorrelation) {
         data.energy_series.reserve(expected_samples);
@@ -279,6 +292,12 @@ std::pair<MeasurementData, double> run_measurement_phase(
                 correlations = sim.get_spin_correlation_with_first();
             }
             
+            // Octupole moment <tau_i s_i> per site (also full computation)
+            std::vector<spin3d> octupole;
+            if (config.output.output_octupole) {
+                octupole = sim.get_octupole_moment_per_site();
+            }
+            
             // Store all samples (raw data, not averaged yet)
             data.energy_samples.push_back(energy);
             data.magnetization_samples.push_back(magnetization);
@@ -298,6 +317,15 @@ std::pair<MeasurementData, double> run_measurement_phase(
             if (config.output.output_correlations) {
                 for (size_t i = 0; i < correlations.size(); i++) {
                     data.correlation_samples[i].push_back(correlations[i]);
+                }
+            }
+            
+            // Store octupole moment samples if requested (one 3-vector per site)
+            if (config.output.output_octupole) {
+                for (size_t i = 0; i < octupole.size(); i++) {
+                    data.oct_x_samples[i].push_back(octupole[i].x);
+                    data.oct_y_samples[i].push_back(octupole[i].y);
+                    data.oct_z_samples[i].push_back(octupole[i].z);
                 }
             }
             
@@ -391,6 +419,7 @@ void align_walker_magnetization(MeasurementData& data,
     for (size_t i = 0; i < species.size(); i++) {
         if (species[i].spin_type == SpinType::ISING) { ising_ref = static_cast<int>(i); break; }
     }
+    bool flipped_ising = false;
     if (ising_ref >= 0 && ising_ref < static_cast<int>(data.mag_z_samples.size())) {
         const auto& ref = data.mag_z_samples[ising_ref];
         if (!ref.empty()) {
@@ -411,6 +440,7 @@ void align_walker_magnetization(MeasurementData& data,
                     if (!data.magnetization_series.empty())
                         for (auto& v : data.magnetization_series) v = -v;
                 }
+                flipped_ising = true;
             }
             std::cout << "  [align_walkers] rank " << rank
                       << "  Ising    ref=" << species[ising_ref].name
@@ -418,6 +448,15 @@ void align_walker_magnetization(MeasurementData& data,
                       << (mean_tau < 0.0 ? "  → FLIPPED Ising" : "  (ok)") << std::endl;
         }
     }
+    // ---- Octupole moment <tau_i s_i> ----
+    // It is the product of the two sectors, so it flips sign whenever exactly one
+    // of the Heisenberg / Ising sectors was sign-aligned above.
+    if (flipped_heis != flipped_ising) {
+        for (auto& v : data.oct_x_samples) for (auto& x : v) x = -x;
+        for (auto& v : data.oct_y_samples) for (auto& y : v) y = -y;
+        for (auto& v : data.oct_z_samples) for (auto& z : v) z = -z;
+    }
     
+    // 
     // Note: energy, correlations, and acceptance rate are sign-invariant, no change needed
 }

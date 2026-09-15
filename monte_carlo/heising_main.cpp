@@ -48,6 +48,8 @@ struct TemperatureResults {
     std::vector<spin3d> stddev_mag_vectors;
     std::vector<double> avg_correlations;
     std::vector<double> stddev_correlations;
+    std::vector<spin3d> avg_octupole;
+    std::vector<spin3d> stddev_octupole;
     TemperatureTimings timings;
 };
 
@@ -80,6 +82,26 @@ static std::optional<double> read_last_temperature(const std::string& filename) 
 
     if (!found) return std::nullopt;
     return last_T;
+}
+
+// Build a human-readable label for each site in the unit cell, e.g. "Cr1/CrA"
+// (Heisenberg/Ising). Sites lacking one of the two spin types fall back to "site<N>".
+static std::vector<std::string> build_site_labels(const UnitCell& unit_cell) {
+    std::vector<std::string> labels;
+    for (int s = 0; s < unit_cell.get_num_sites(); s++) {
+        std::string heis, ising;
+        for (int sid : unit_cell.get_spins_at_site(s)) {
+            const SpinInfo& sp = unit_cell.get_spin(sid);
+            if (sp.spin_type == SpinType::HEISENBERG && heis.empty()) heis = sp.label;
+            if (sp.spin_type == SpinType::ISING && ising.empty()) ising = sp.label;
+        }
+        if (!heis.empty() && !ising.empty()) {
+            labels.push_back(heis + "/" + ising);
+        } else {
+            labels.push_back("site" + std::to_string(s));
+        }
+    }
+    return labels;
 }
 
 /**
@@ -289,6 +311,19 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
         }
     }
     
+    // Gather octupole moment samples (one 3-vector per site)
+    int num_sites = unit_cell.get_num_sites();
+    std::vector<std::vector<double>> all_oct_x_samples(num_sites);
+    std::vector<std::vector<double>> all_oct_y_samples(num_sites);
+    std::vector<std::vector<double>> all_oct_z_samples(num_sites);
+    if (config.output.output_octupole) {
+        for (int i = 0; i < num_sites; i++) {
+            all_oct_x_samples[i] = mpi_accumulator.gather_samples(measurement_data.oct_x_samples[i]);
+            all_oct_y_samples[i] = mpi_accumulator.gather_samples(measurement_data.oct_y_samples[i]);
+            all_oct_z_samples[i] = mpi_accumulator.gather_samples(measurement_data.oct_z_samples[i]);
+        }
+    }
+    
     // Gather acceptance rates
     std::vector<double> all_acceptance_samples = mpi_accumulator.gather_samples(measurement_data.acceptance_samples);
     
@@ -385,6 +420,19 @@ std::pair<TemperatureResults, MonteCarloSimulation*> run_temperature_point(
             }
         }
         
+        // Octupole moment <tau_i s_i> statistics (per site)
+        results.avg_octupole.resize(num_sites);
+        results.stddev_octupole.resize(num_sites);
+        if (config.output.output_octupole) {
+            for (int i = 0; i < num_sites; i++) {
+                auto [ox_mean, ox_std] = compute_stats(all_oct_x_samples[i]);
+                auto [oy_mean, oy_std] = compute_stats(all_oct_y_samples[i]);
+                auto [oz_mean, oz_std] = compute_stats(all_oct_z_samples[i]);
+                results.avg_octupole[i] = spin3d(ox_mean, oy_mean, oz_mean);
+                results.stddev_octupole[i] = spin3d(ox_std, oy_std, oz_std);
+            }
+        }
+        
         // Autocorrelation estimates if enabled
         if (config.diagnostics.estimate_autocorrelation && measurement_data.energy_series.size() > 2) {
             double rho_energy = estimate_autocorrelation(measurement_data.energy_series);
@@ -469,6 +517,7 @@ void run_single_temperature(const IO::SimulationConfig& config,
     
     // Output results (only rank 0)
     if (rank == 0) {
+        std::vector<std::string> site_labels = build_site_labels(unit_cell);
         IO::print_observables_formatted(
             results.T, results.total_spins,
             results.avg_energy, results.stddev_energy,
@@ -479,8 +528,11 @@ void run_single_temperature(const IO::SimulationConfig& config,
             config.species,
             results.avg_mag_vectors, results.stddev_mag_vectors,
             results.avg_correlations, results.stddev_correlations,
+            results.avg_octupole, results.stddev_octupole,
+            site_labels,
             config.output.output_onsite_magnetization,
-            config.output.output_correlations
+            config.output.output_correlations,
+            config.output.output_octupole
         );
     }
 }
@@ -587,6 +639,7 @@ void run_temperature_scan(const IO::SimulationConfig& config,
     UnitCell unit_cell = create_unit_cell_from_config(config.species);
     CouplingMatrix couplings = create_couplings_from_config(config.couplings, config.species, config.lattice_size);
     std::optional<KK_Matrix> kk_matrix = create_kk_matrix_from_config(config.kk_couplings, unit_cell, config.lattice_size);
+    std::vector<std::string> site_labels = build_site_labels(unit_cell);
     
     // Setup output files (rank 0 only)
     std::ofstream outfile, stddev_outfile;
@@ -649,6 +702,13 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                     } else {
                         file << " <" << first_heis_name << "·" << config.species[i].name << ">";
                     }
+                }
+            }
+            
+            if (config.output.output_octupole) {
+                for (size_t i = 0; i < site_labels.size(); i++) {
+                    file << " Oct_x[" << site_labels[i] << "] Oct_y[" << site_labels[i]
+                         << "] Oct_z[" << site_labels[i] << "]";
                 }
             }
             file << std::endl;
@@ -727,8 +787,11 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                 config.species,
                 results.avg_mag_vectors, results.stddev_mag_vectors,
                 results.avg_correlations, results.stddev_correlations,
+                results.avg_octupole, results.stddev_octupole,
+                site_labels,
                 config.output.output_onsite_magnetization,
-                config.output.output_correlations
+                config.output.output_correlations,
+                config.output.output_octupole
             );
             
             // File output - compact format
@@ -763,6 +826,14 @@ void run_temperature_scan(const IO::SimulationConfig& config,
                     outfile << " " << std::setw(14) << std::setprecision(8) << corr;
                 }
             }
+            
+            if (config.output.output_octupole) {
+                for (const auto& oct : results.avg_octupole) {
+                    outfile << " " << std::setw(14) << std::setprecision(8) << oct.x
+                            << " " << std::setw(14) << std::setprecision(8) << oct.y
+                            << " " << std::setw(14) << std::setprecision(8) << oct.z;
+                }
+            }
             outfile << std::endl;
             
             // Stddev file
@@ -790,6 +861,14 @@ void run_temperature_scan(const IO::SimulationConfig& config,
             if (config.output.output_correlations) {
                 for (const auto& corr_std : results.stddev_correlations) {
                     stddev_outfile << " " << std::setw(14) << std::setprecision(8) << corr_std;
+                }
+            }
+            
+            if (config.output.output_octupole) {
+                for (const auto& oct : results.stddev_octupole) {
+                    stddev_outfile << " " << std::setw(14) << std::setprecision(8) << oct.x
+                                   << " " << std::setw(14) << std::setprecision(8) << oct.y
+                                   << " " << std::setw(14) << std::setprecision(8) << oct.z;
                 }
             }
             stddev_outfile << std::endl;

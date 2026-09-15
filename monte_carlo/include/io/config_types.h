@@ -103,6 +103,7 @@ struct OutputConfig {
     bool output_energy_total = true;           // Output total energy (in addition to per-spin)
     bool output_onsite_magnetization = false;  // Output per-species magnetization
     bool output_correlations = true;           // Output spin-spin correlations with first spin
+    bool output_octupole = false;              // Output octupole moment <tau_i s_i> per site (Ising x Heisenberg)
     
     // Legacy: always output basic observables (E/spin, M, Cv, chi, acceptance)
 };

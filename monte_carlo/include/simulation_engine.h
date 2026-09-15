@@ -192,6 +192,12 @@ public:
     // This is direction-independent and can be averaged across walkers with different ordering directions
     std::vector<double> get_spin_correlation_with_first();
     
+    // Octupole moment <tau_i s_i> per site: for each site, the lattice average of
+    // (Ising value) * (Heisenberg vector) taken at the same site. Returns one 3D
+    // vector per site; sites without exactly one Ising and one Heisenberg spin
+    // contribute zero.
+    std::vector<spin3d> get_octupole_moment_per_site();
+    
     double get_acceptance_rate() const;
     double get_slab_acceptance_rate() const;
     long int get_total_slab_attempts() const { return total_slab_attempts; }

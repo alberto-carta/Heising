@@ -81,6 +81,10 @@ inline void print_subsection_separator(const std::string& title = "") {
  * @param stddev_correlations Standard deviation of correlations
  * @param output_onsite_mag Whether to output per-spin magnetization
  * @param output_correlations Whether to output correlations
+ * @param avg_octupole Per-site average octupole moment <tau_i s_i>
+ * @param stddev_octupole Per-site standard deviation of the octupole moment
+ * @param site_labels Human-readable label per site (e.g. "Cr1/CrA")
+ * @param output_octupole Whether to output octupole moments
  */
 inline void print_observables_formatted(
     double T,
@@ -100,8 +104,12 @@ inline void print_observables_formatted(
     const std::vector<spin3d>& stddev_mag_vectors,
     const std::vector<double>& avg_correlations,
     const std::vector<double>& stddev_correlations,
+    const std::vector<spin3d>& avg_octupole,
+    const std::vector<spin3d>& stddev_octupole,
+    const std::vector<std::string>& site_labels,
     bool output_onsite_mag,
-    bool output_correlations)
+    bool output_correlations,
+    bool output_octupole)
 {
     std::cout << std::fixed;
     
@@ -174,6 +182,24 @@ inline void print_observables_formatted(
                           << std::setw(14) << avg_correlations[i] 
                           << " ± " << std::setw(14) << stddev_correlations[i] << "\n";
             }
+        }
+    }
+    
+    // Octupole moments <tau_i s_i> per site
+    if (output_octupole && !avg_octupole.empty()) {
+        std::cout << "\n  Octupole Moments <tau_i s_i>:\n";
+        std::cout << "  ------------------------------\n";
+        std::cout << std::setprecision(8);
+        for (size_t i = 0; i < avg_octupole.size(); i++) {
+            std::string label = (i < site_labels.size()) ? site_labels[i]
+                                                         : ("site" + std::to_string(i));
+            std::cout << "    " << std::setw(16) << std::left << label << std::right
+                      << "  Mx: " << std::setw(14) << avg_octupole[i].x
+                      << " ± " << std::setw(14) << stddev_octupole[i].x << "\n";
+            std::cout << "                       My: " << std::setw(14) << avg_octupole[i].y
+                      << " ± " << std::setw(14) << stddev_octupole[i].y << "\n";
+            std::cout << "                       Mz: " << std::setw(14) << avg_octupole[i].z
+                      << " ± " << std::setw(14) << stddev_octupole[i].z << "\n";
         }
     }
     

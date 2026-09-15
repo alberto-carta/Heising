@@ -24,6 +24,9 @@ struct MeasurementData {
     std::vector<std::vector<double>> mag_y_samples; // will be 0 for ising spins
     std::vector<std::vector<double>> mag_z_samples; // only one active for ising spins
     std::vector<std::vector<double>> correlation_samples;
+    std::vector<std::vector<double>> oct_x_samples; // per site: <tau s_x>
+    std::vector<std::vector<double>> oct_y_samples; // per site: <tau s_y>
+    std::vector<std::vector<double>> oct_z_samples; // per site: <tau s_z>
     std::vector<double> acceptance_samples;
     
     // For autocorrelation

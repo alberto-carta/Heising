@@ -34,6 +34,7 @@
  *   output_energy_total = false         # Output total energy (in addition to per-spin)
  *   output_onsite_magnetization = false # Output on-site magnetization for each species
  *   output_correlations = true          # Output spin correlations with first spin (default: true if not specified)
+ *   output_octupole = false             # Output octupole moment <tau_i s_i> per site (Ising x Heisenberg)
  * 
  * [input_files]
  *   species = "species.dat"             # Species definitions file
@@ -211,6 +212,7 @@ void ConfigurationParser::parse_toml_file(const std::string& toml_file, Simulati
             config.output.output_energy_total = toml::find_or<bool>(output, "output_energy_total", false);
             config.output.output_onsite_magnetization = toml::find_or<bool>(output, "output_onsite_magnetization", false);
             config.output.output_correlations = toml::find_or<bool>(output, "output_correlations", false);
+            config.output.output_octupole = toml::find_or<bool>(output, "output_octupole", false);
         } else {
             config.output.base_name = "simulation";
             config.output.directory = ".";
